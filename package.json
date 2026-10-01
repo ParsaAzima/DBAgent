@@ -1,0 +1,66 @@
+{
+  "name": "dbagent",
+  "version": "0.2.0",
+  "description": "AI-powered database agent — talk to your SQL databases in natural language (SQLite, PostgreSQL, MySQL)",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "dbagent": "dist/cli.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/cli.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/cli.js",
+    "demo:seed": "node scripts/make-demo-sqlite.mjs",
+    "test:smoke": "npm run build && node scripts/smoke-agent.mjs",
+    "test:e2e": "npm run build && node scripts/e2e-cli.mjs",
+    "test:stream": "npm run build && node scripts/e2e-stream.mjs",
+    "test:tui": "tsx scripts/tui-render-check.tsx",
+    "test:md": "tsx scripts/markdown-render-check.tsx",
+    "test:system": "npm run build && node scripts/smoke-system.mjs",
+    "test:fileshell": "npm run build && node scripts/smoke-file-shell.mjs",
+    "test": "npm run typecheck && npm run test:smoke && npm run test:e2e && npm run test:stream && npm run test:tui && npm run test:md && npm run test:system && npm run test:fileshell",
+    "demo": "npm run build && node scripts/make-demo-sqlite.mjs && node dist/cli.js chat --db sqlite://./demo.db --provider openai"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "database",
+    "sql",
+    "postgres",
+    "mysql",
+    "sqlite",
+    "llm",
+    "text-to-sql"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@types/react": "^19.3.0",
+    "commander": "^15.0.0",
+    "ink": "^7.1.1",
+    "ink-text-input": "^6.0.0",
+    "marked": "^18.0.14",
+    "mysql2": "^3.11.0",
+    "pg": "^8.13.0",
+    "react": "^19.3.0"
+  },
+  "optionalDependencies": {
+    "better-sqlite3": "^11.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.0",
+    "@types/pg": "^8.11.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  },
+  "allowScripts": {
+    "better-sqlite3@11.10.0": true,
+    "esbuild@0.28.2": true,
+    "sqlite3@5.1.7": true
+  }
+}
