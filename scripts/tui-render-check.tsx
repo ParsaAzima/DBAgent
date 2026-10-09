@@ -8,6 +8,7 @@ import React from 'react';
 import { render } from 'ink';
 import { PassThrough } from 'node:stream';
 import { Tui } from '../src/tui/app.js';
+import { completeSlashCommand, getSlashCommandSuggestions } from '../src/tui/commands.js';
 
 const mockDb: any = {
   dialect: 'sqlite' as const,
@@ -118,6 +119,20 @@ const check = (name: string, cond: boolean, detail = '') => {
 
 check('banner rendered', joined.includes('DBAgent — AI for your databases'), joined.slice(0, 300));
 check('target line rendered', joined.includes('sqlite file: :memory: (mock)'));
+check(
+  'slash suggestions filter by command prefix',
+  getSlashCommandSuggestions('/re')
+    .map((command) => command.name)
+    .join(',') === 'refresh,reset',
+);
+check(
+  'slash aliases resolve to canonical command suggestions',
+  getSlashCommandSuggestions('/qui')[0]?.name === 'exit',
+);
+check(
+  'commands with arguments retain a space after completion',
+  completeSlashCommand(getSlashCommandSuggestions('/mod')[0]) === '/model ',
+);
 
 unmount();
 await waitUntilExit();

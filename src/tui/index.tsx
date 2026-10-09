@@ -23,6 +23,7 @@ export interface RenderTuiOptions {
   sessionLabel: string;
   /** Restored TUI transcript from a previous session. */
   initialItems?: unknown[];
+  onModelSwitch?: (model: string) => void;
   onSave?: (transcript?: unknown[]) => void;
 }
 
@@ -39,6 +40,7 @@ export function renderTui(opts: RenderTuiOptions): { waitUntilExit: Promise<void
       maxRows={opts.maxRows}
       sessionLabel={opts.sessionLabel}
       initialItems={opts.initialItems as never}
+      onModelSwitch={opts.onModelSwitch}
       onSave={opts.onSave ?? undefined}
     />,
     { exitOnCtrlC: true },

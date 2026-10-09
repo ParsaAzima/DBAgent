@@ -1,0 +1,52 @@
+export interface SlashCommand {
+  name: string;
+  aliases?: string[];
+  usage?: string;
+  description: string;
+}
+
+export const SLASH_COMMANDS: SlashCommand[] = [
+  {
+    name: 'help',
+    usage: '[command]',
+    description: 'Show available commands or help for one command.',
+  },
+  {
+    name: 'clear',
+    aliases: ['cls'],
+    description: 'Clear the visible transcript without resetting agent context.',
+  },
+  { name: 'exit', aliases: ['quit'], description: 'Save the session and exit.' },
+  { name: 'model', usage: '[name]', description: 'Show or switch the current provider model.' },
+  { name: 'schema', description: 'List database tables, columns, and relationships.' },
+  { name: 'refresh', description: 'Refresh the database schema after external changes.' },
+  { name: 'save', description: 'Save the current session transcript.' },
+  { name: 'reset', description: 'Clear the transcript, conversation context, and usage totals.' },
+  {
+    name: 'status',
+    description: 'Show the current database, model, permissions, and session status.',
+  },
+  { name: 'cost', description: 'Show cumulative token usage and estimated model cost.' },
+];
+
+export function findSlashCommand(name: string): SlashCommand | undefined {
+  const normalized = name.toLowerCase();
+  return SLASH_COMMANDS.find(
+    (command) =>
+      command.name === normalized || command.aliases?.some((alias) => alias === normalized),
+  );
+}
+
+export function getSlashCommandSuggestions(value: string): SlashCommand[] {
+  const match = /^\/([^\s]*)$/.exec(value);
+  if (!match) return [];
+  const query = match[1].toLowerCase();
+  return SLASH_COMMANDS.filter(
+    (command) =>
+      command.name.startsWith(query) || command.aliases?.some((alias) => alias.startsWith(query)),
+  );
+}
+
+export function completeSlashCommand(command: SlashCommand): string {
+  return `/${command.name}${command.usage ? ' ' : ''}`;
+}

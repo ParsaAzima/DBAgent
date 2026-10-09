@@ -23,6 +23,7 @@ import type { DatabaseDriver } from '../core/types.js';
 import { Transcript, LiveTurn, StatusBar } from './components.js';
 import { TableView, pickLatestTable } from './table-viewer.js';
 import { ChatInput } from './input.js';
+import { findSlashCommand, SLASH_COMMANDS } from './commands.js';
 import type { TranscriptItem, ToolRun, UsageInfo, TurnUsage } from './foundation.js';
 import {
   usageToInfo,
@@ -54,7 +55,7 @@ export interface TuiProps {
 
 const EMPTY_USAGE: UsageInfo = { inputTokens: 0, outputTokens: 0, costUsd: 0 };
 const HINTS =
-  'esc stop · ctrl+t tool details · ctrl+o table view · /model · /schema · /refresh · /help · /exit';
+  'esc stop · ctrl+t tool details · ctrl+o table view · / for commands · /help for help';
 
 interface Live {
   text: string;
@@ -85,6 +86,8 @@ export function Tui(props: TuiProps): React.ReactElement {
   const abortRef = useRef<AbortController | null>(null);
   const itemsRef = useRef(items);
   itemsRef.current = items;
+  // Saved history is separate so clearing the screen does not erase the session.
+  const transcriptRef = useRef<TranscriptItem[]>(props.initialItems ?? []);
   const modelRef = useRef(model);
   modelRef.current = model;
 
@@ -96,6 +99,7 @@ export function Tui(props: TuiProps): React.ReactElement {
   }, [live.busy]);
 
   const push = useCallback((item: TranscriptItem) => {
+    transcriptRef.current = [...transcriptRef.current, item];
     setItems((prev) => [...prev, item]);
   }, []);
 
@@ -237,7 +241,7 @@ export function Tui(props: TuiProps): React.ReactElement {
         };
         push(doneItem);
         // Auto-persist the full transcript after every completed turn.
-        props.onSave?.([...itemsRef.current, doneItem]);
+        props.onSave?.(transcriptRef.current);
       } catch (err) {
         const message = (err as Error).message ?? String(err);
         if (ctrl.signal.aborted) push({ role: 'info', text: '· cancelled' });
@@ -256,93 +260,168 @@ export function Tui(props: TuiProps): React.ReactElement {
       if (!input) return;
       if (live.busy || pendingRef.current) return;
 
-      if (input === '/exit' || input === '/quit') {
-        props.onSave?.(itemsRef.current);
-        exit();
-        return;
-      }
-      if (input === '/reset') {
-        props.agent.reset();
-        setItems([]);
-        setTotals(EMPTY_USAGE);
-        return;
-      }
-      if (input === '/save') {
-        props.onSave?.(itemsRef.current);
-        push({ role: 'info', text: '✓ session saved' });
-        return;
-      }
-      if (input === '/help') {
-        push({
-          role: 'info',
-          text: '/schema tables+columns · /refresh re-read schema after DDL · /model [name] switch model · /save · /reset · ctrl+t tool detail · ctrl+o last result · /exit',
-        });
-        return;
-      }
-      if (input === '/refresh') {
-        try {
-          await props.db.refreshSchema();
-          const tables = await props.db.listTables();
-          push({ role: 'info', text: `✓ Schema refreshed (${tables.length} tables/views)` });
-        } catch (err) {
-          push({ role: 'error', text: (err as Error).message });
-        }
-        return;
-      }
-      if (input === '/schema') {
-        try {
-          const tables = await props.db.listTables();
-          const shown = tables.slice(0, 50);
-          const lines = shown
-            .map(
-              (t) =>
-                `▎${t.name} (${t.kind}, ~${t.rowCountEstimate ?? '?'} rows)\n` +
-                t.columns
-                  .map(
-                    (c) =>
-                      `   ${c.name}: ${c.dataType}${c.isPrimaryKey ? ' ⚿' : ''}${c.nullable ? '' : ' ∗'}`,
-                  )
-                  .join('\n'),
-            )
-            .join('\n');
-          let text = lines || '(no tables)';
-          if (tables.length > shown.length) {
-            text += `\n… and ${tables.length - shown.length} more tables (ask the agent or use search via chat).`;
-          }
-          try {
-            const relations = await props.db.listRelations();
-            if (relations.length > 0) {
-              text +=
-                '\nRelations:\n' +
-                relations
-                  .map((r) => `  ${r.fromTable}.${r.fromColumn} → ${r.toTable}.${r.toColumn}`)
-                  .join('\n');
-            }
-          } catch {
-            /* FK catalog may be unreadable; tables above are enough */
-          }
-          push({ role: 'info', text });
-        } catch (err) {
-          push({ role: 'error', text: (err as Error).message });
-        }
-        return;
-      }
-      if (input.startsWith('/model')) {
-        const target = input.slice('/model'.length).trim();
-        if (!target) {
-          push({ role: 'info', text: `current model: ${props.provider}/${model}` });
+      if (input.startsWith('/')) {
+        const parsed = /^\/(\S+)(?:\s+([\s\S]*))?$/.exec(input);
+        if (!parsed) {
+          push({ role: 'error', text: 'Invalid command. Type /help to see available commands.' });
           return;
         }
-        setModel(target);
-        props.onModelSwitch?.(target);
-        push({ role: 'info', text: `✓ model → ${target}` });
-        return;
+        const command = findSlashCommand(parsed[1]);
+        if (!command) {
+          push({
+            role: 'error',
+            text: `Unknown command: /${parsed[1]}. Type /help to see available commands.`,
+          });
+          return;
+        }
+        const args = parsed[2]?.trim() ?? '';
+        if (args && command.name !== 'help' && command.name !== 'model') {
+          push({ role: 'error', text: `/${command.name} does not take arguments.` });
+          return;
+        }
+
+        switch (command.name) {
+          case 'help': {
+            if (args) {
+              const requested = args.replace(/^\//, '').split(/\s/)[0];
+              const target = findSlashCommand(requested);
+              if (!target) {
+                push({
+                  role: 'error',
+                  text: `Unknown command: ${args}. Type /help to list commands.`,
+                });
+                return;
+              }
+              push({
+                role: 'info',
+                text: `/${target.name}${target.usage ? ` ${target.usage}` : ''}\n${target.description}${
+                  target.aliases
+                    ? `\nAliases: ${target.aliases.map((alias) => `/${alias}`).join(', ')}`
+                    : ''
+                }`,
+              });
+              return;
+            }
+            push({
+              role: 'info',
+              text:
+                'Slash commands (type / and use ↑/↓, Tab, or Enter to complete):\n' +
+                SLASH_COMMANDS.map(
+                  (entry) =>
+                    `/${entry.name}${entry.usage ? ` ${entry.usage}` : ''} — ${entry.description}`,
+                ).join('\n') +
+                '\n\nKeyboard: Esc stop · ctrl+t tool details · ctrl+o table viewer · ctrl+l clear transcript.',
+            });
+            return;
+          }
+          case 'clear':
+            setItems([]);
+            return;
+          case 'exit':
+            props.onSave?.(transcriptRef.current);
+            exit();
+            return;
+          case 'model':
+            if (!args) {
+              push({ role: 'info', text: `current model: ${props.provider}/${model}` });
+              return;
+            }
+            try {
+              if (!props.onModelSwitch) {
+                throw new Error('Model switching is unavailable in this TUI instance.');
+              }
+              props.onModelSwitch(args);
+              setModel(args);
+              push({ role: 'info', text: `✓ model → ${args}` });
+            } catch (err) {
+              push({ role: 'error', text: (err as Error).message });
+            }
+            return;
+          case 'schema':
+            try {
+              const tables = await props.db.listTables();
+              const shown = tables.slice(0, 50);
+              const lines = shown
+                .map(
+                  (t) =>
+                    `▎${t.name} (${t.kind}, ~${t.rowCountEstimate ?? '?'} rows)\n` +
+                    t.columns
+                      .map(
+                        (c) =>
+                          `   ${c.name}: ${c.dataType}${c.isPrimaryKey ? ' ⚿' : ''}${c.nullable ? '' : ' ∗'}`,
+                      )
+                      .join('\n'),
+                )
+                .join('\n');
+              let text = lines || '(no tables)';
+              if (tables.length > shown.length) {
+                text += `\n… and ${tables.length - shown.length} more tables (ask the agent or use search via chat).`;
+              }
+              try {
+                const relations = await props.db.listRelations();
+                if (relations.length > 0) {
+                  text +=
+                    '\nRelations:\n' +
+                    relations
+                      .map((r) => `  ${r.fromTable}.${r.fromColumn} → ${r.toTable}.${r.toColumn}`)
+                      .join('\n');
+                }
+              } catch {
+                /* FK catalog may be unreadable; tables above are enough */
+              }
+              push({ role: 'info', text });
+            } catch (err) {
+              push({ role: 'error', text: (err as Error).message });
+            }
+            return;
+          case 'refresh':
+            try {
+              await props.db.refreshSchema();
+              const tables = await props.db.listTables();
+              push({ role: 'info', text: `✓ Schema refreshed (${tables.length} tables/views)` });
+            } catch (err) {
+              push({ role: 'error', text: (err as Error).message });
+            }
+            return;
+          case 'save': {
+            push({ role: 'info', text: '✓ session saved' });
+            props.onSave?.(transcriptRef.current);
+            return;
+          }
+          case 'reset':
+            props.agent.reset();
+            transcriptRef.current = [];
+            setItems([]);
+            setTotals(EMPTY_USAGE);
+            return;
+          case 'status':
+            push({
+              role: 'info',
+              text:
+                `Provider/model: ${props.provider}/${model}\n` +
+                `Database: ${props.db.dialect} · ${props.db.describeTarget()}\n` +
+                `Mode: ${props.allowWrites ? 'read + write' : 'read-only'}\n` +
+                `Session: ${props.sessionLabel}\n` +
+                `Conversation messages: ${props.agent.getHistory().length}\n` +
+                `Transcript items: ${itemsRef.current.length}`,
+            });
+            return;
+          case 'cost':
+            push({
+              role: 'info',
+              text:
+                `Model: ${props.provider}/${model}\n` +
+                `Tokens: ${fmtTokens(totals.inputTokens)} in / ${fmtTokens(totals.outputTokens)} out\n` +
+                `Estimated cost: ${fmtCost(totals.costUsd)}`,
+            });
+            return;
+        }
       }
 
       push({ role: 'user', text: input, ts: Date.now() });
       await runTurn(input);
     },
-    [props, push, runTurn, model, live.busy],
+    [props, push, runTurn, model, live.busy, exit, totals],
   );
 
   useInput((input, key) => {
@@ -361,7 +440,7 @@ export function Tui(props: TuiProps): React.ReactElement {
       if (t) setShowTable(true);
     }
     if (key.ctrl && input === 'l') {
-      setItems([]); // clear screen (transcript stays in session on save)
+      setItems([]);
     }
   });
 

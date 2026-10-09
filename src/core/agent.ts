@@ -75,7 +75,7 @@ export class Agent {
   private readonly safety: Required<AgentSafetyFlags>;
 
   constructor(
-    private readonly llm: LLMAdapter,
+    private llm: LLMAdapter,
     private readonly db: DatabaseDriver,
     private readonly providerConfig: LLMProviderConfig,
     private readonly maxRounds = 12,
@@ -121,6 +121,12 @@ export class Agent {
   /** Reset conversation history (keeps provider/db wiring). */
   reset(): void {
     this.history = [];
+  }
+
+  /** Replace the provider adapter after an interactive model change. */
+  setModel(model: string, llm: LLMAdapter): void {
+    this.providerConfig.model = model;
+    this.llm = llm;
   }
 
   /** Run one full user turn through the tool loop. */

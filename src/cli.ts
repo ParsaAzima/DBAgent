@@ -207,6 +207,12 @@ program
         maxRows: cfg.maxRows,
         sessionLabel: sessionId,
         initialItems: tuiItems as never,
+        onModelSwitch: (model: string) => {
+          const nextConfig = { ...cfg.llm, model };
+          const nextAdapter = createLLMAdapter(nextConfig);
+          agent.setModel(model, nextAdapter);
+          cfg.llm.model = model;
+        },
         onSave: (transcript?: unknown[]) => persist(transcript),
       });
       await db.close();

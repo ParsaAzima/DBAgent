@@ -70,10 +70,15 @@ Ask things like _"Which product sold the most last month?"_ or _"Export the cust
 | `ctrl+o`                     | Interactive table viewer over the latest query result (scroll `↑↓←→`/`jkhl`, page `PgUp/PgDn`, jump `g`/`G`) |
 | `ctrl+t`                     | Expand/collapse tool-call details (SQL, result previews)                                                     |
 | `ctrl+l`                     | Clear screen (session keeps the transcript)                                                                  |
-| `/model <name>`              | Switch models mid-session, e.g. `/model anthropic/claude-sonnet-4`                                           |
-| `/schema`                    | Dump tables, columns, types, primary keys                                                                    |
-| `/refresh`                   | Drop the cached schema snapshot and re-read the live catalog                                                 |
-| `/save` · `/reset` · `/exit` | Persist session · clear conversation · quit                                                                  |
+| `↑` / `↓` / `Tab`            | Navigate and complete slash-command suggestions; outside the menu, arrows browse input history               |
+| `/help [command]`            | List commands or show details for one command                                                                |
+| `/model [name]`              | Show or switch models mid-session, e.g. `/model anthropic/claude-sonnet-4`                                   |
+| `/schema` · `/refresh`       | Show tables/columns/relationships · reload the live schema after external DDL                                |
+| `/status` · `/cost`          | Show session/database/model state · cumulative tokens and estimated cost                                     |
+| `/clear` · `ctrl+l`          | Clear the visible transcript; the agent context is retained                                                  |
+| `/save` · `/reset` · `/exit` | Persist the session · clear transcript/context/usage · save and quit                                         |
+
+Start typing `/` to see matching commands. Use `↑`/`↓` to highlight a suggestion, `Tab` to complete it, or `Enter` to complete a partial command; `Enter` on a complete command runs it. `/quit` is an alias for `/exit`, and `/cls` is an alias for `/clear`. Unknown slash commands are reported instead of being sent to the model.
 
 The status bar is always visible: current `provider/model`, safety mode, session id, cumulative tokens in/out, and **estimated cost** (built-in price table for popular models; shows `$0` when pricing is unknown).
 
