@@ -100,8 +100,8 @@ Database URLs: `sqlite://./app.db` · `postgres://user:pass@host:5432/db?ssl=tru
 | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
 | `db_stats`                               | Per-table sizes, row counts, index counts, total DB size                                                                                      |
 | `system_info`                            | Server version, uptime, active connections, key settings                                                                                      |
-| `export_data`                            | Dump any table to CSV/JSON under `./dbagent-out/`                                                                                             |
-| `import_csv`                             | Load a CSV into a table, auto-creating it from headers (also needs `--allow-writes`)                                                          |
+| `export_data`                            | Dump any table to CSV/JSON under `./dbagent-out/` (streamed in chunks — full dump, flat memory)                                               |
+| `import_csv`                             | Load a CSV into a table, auto-creating it from headers (also needs `--allow-writes`; single transaction, multi-row batches)                   |
 | `backup`                                 | SQLite: `VACUUM INTO` · PostgreSQL: `pg_dump` · MySQL: `mysqldump` · SQL Server: `BACKUP DATABASE` (the `.bak` is written on the server host) |
 | `discover_local_databases`               | Probe local servers, scan for SQLite files, check client tools                                                                                |
 | `read_file` / `write_file` / `edit_file` | Read (paged, 512 KB cap), create (overwrite-protected), surgical-edit files                                                                   |

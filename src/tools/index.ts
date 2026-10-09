@@ -504,7 +504,7 @@ export function buildTools(db: DatabaseDriver, opts: BuildToolsOptions = {}): Bu
       {
         name: 'export_data',
         description:
-          'Export a full table to a CSV or JSON file under ./dbagent-out/. Returns file path, row and byte counts.',
+          'Export a full table to a CSV or JSON file under ./dbagent-out/. Streams in chunks (never truncated, flat memory). Returns file path, row and byte counts.',
         parameters: {
           type: 'object',
           description: 'Arguments for export_data.',
@@ -518,7 +518,7 @@ export function buildTools(db: DatabaseDriver, opts: BuildToolsOptions = {}): Bu
       {
         name: 'import_csv',
         description:
-          'Import a local CSV file into a table (requires write mode). Can auto-create the table from headers.',
+          'Import a local CSV file into a table (requires write mode). Can auto-create the table from headers. Loads in one transaction with multi-row batches.',
         parameters: {
           type: 'object',
           description: 'Arguments for import_csv.',
@@ -528,6 +528,10 @@ export function buildTools(db: DatabaseDriver, opts: BuildToolsOptions = {}): Bu
             createTable: {
               type: 'boolean',
               description: 'Create the table from CSV headers (all TEXT columns).',
+            },
+            batchRows: {
+              type: 'number',
+              description: 'Rows per INSERT (default 500, clamped by the driver parameter budget).',
             },
           },
           required: ['file', 'table'],

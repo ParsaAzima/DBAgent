@@ -82,7 +82,11 @@ export function createSystemToolRegistry(deps: SystemToolDeps): Map<string, Tool
     const file = String(args.file ?? '').trim();
     const table = String(args.table ?? '').trim();
     if (!file || !table) throw new Error('import_csv requires "file" and "table".');
-    return importCsv(db, resolveUserPath(file), table, { createTable: !!args.createTable });
+    const batchRows = Number(args.batchRows ?? 500);
+    return importCsv(db, resolveUserPath(file), table, {
+      createTable: !!args.createTable,
+      batchRows: Number.isFinite(batchRows) && batchRows > 0 ? batchRows : 500,
+    });
   });
 
   registry.set('backup', async (args) => {

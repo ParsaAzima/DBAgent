@@ -12,7 +12,8 @@
  */
 
 import { spawn } from 'node:child_process';
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, statSync, createWriteStream } from 'node:fs';
+import type { WriteStream } from 'node:fs';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import type { DatabaseDriver, DatabaseDialect } from '../core/types.js';
@@ -228,12 +229,18 @@ export async function collectSystemInfo(db: DatabaseDriver): Promise<SystemInfo>
 
 /* ─────────────────── export ─────────────────── */
 
+function escCsv(v: unknown): string {
+  const s = v === null || v === undefined ? '' : String(v);
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
 export function toCsv(columns: string[], rows: unknown[][]): string {
-  const esc = (v: unknown): string => {
-    const s = v === null || v === undefined ? '' : String(v);
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-  };
-  return [columns.map(esc).join(','), ...rows.map((r) => r.map(esc).join(','))].join('\n');
+  return [columns.map(escCsv).join(','), ...rows.map((r) => r.map(escCsv).join(','))].join('\n');
+}
+
+/** One CSV data line (no header) — the streaming counterpart of toCsv. */
+function csvLine(row: unknown[]): string {
+  return row.map(escCsv).join(',');
 }
 
 export function toJson(columns: string[], rows: unknown[][]): string {
@@ -244,16 +251,192 @@ export function toJson(columns: string[], rows: unknown[][]): string {
   );
 }
 
+/** One compact JSON object line for a row — the streaming counterpart of toJson. */
+function jsonLine(columns: string[], row: unknown[]): string {
+  return JSON.stringify(Object.fromEntries(columns.map((c, i) => [c, row[i] ?? null])));
+}
+
+export interface ExportOptions {
+  /** Rows per read chunk (default 5000, clamped to 100..50000). */
+  chunkRows?: number;
+  /** Progress callback with the cumulative row count. */
+  onProgress?: (rows: number) => void;
+}
+
+export interface ExportResult {
+  file: string;
+  rows: number;
+  bytes: number;
+  elapsedMs: number;
+}
+
+/** Write with backpressure: resolve when the kernel buffer drains. */
+function streamWrite(out: WriteStream, s: string): Promise<void> {
+  if (out.write(s)) return Promise.resolve();
+  return new Promise<void>((resolve, reject) => {
+    out.once('drain', () => resolve());
+    out.once('error', reject);
+  });
+}
+
+function streamEnd(out: WriteStream): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    out.once('error', reject);
+    out.end(() => resolve());
+  });
+}
+
+/**
+ * Dump a whole table to CSV/JSON, streaming both sides.
+ *
+ * Reads go through native handles in chunks (SQLite iterates lazily; server
+ * dialects page with LIMIT/OFFSET or OFFSET/FETCH) and bytes are written to
+ * a file stream — memory stays flat regardless of table size. Note this
+ * intentionally bypasses the driver's maxRows guardrail: an explicit
+ * operator dump is not an ad-hoc agent query.
+ */
 export async function exportTable(
   db: DatabaseDriver,
   table: string,
   format: 'csv' | 'json',
   outPath: string,
-): Promise<{ file: string; rows: number; bytes: number }> {
-  const res = await db.execute(`SELECT * FROM ${quoteIdent(db.dialect, table)}`);
-  const content = format === 'csv' ? toCsv(res.columns, res.rows) : toJson(res.columns, res.rows);
-  await writeFile(outPath, content, 'utf8');
-  return { file: outPath, rows: res.rows.length, bytes: Buffer.byteLength(content) };
+  opts: ExportOptions = {},
+): Promise<ExportResult> {
+  const t0 = Date.now();
+  const chunkRows = Math.max(100, Math.min(opts.chunkRows ?? 5000, 50000));
+  await mkdir(path.dirname(path.resolve(outPath)), { recursive: true });
+  const out = createWriteStream(outPath, { encoding: 'utf8' });
+  const qualified = quoteIdent(db.dialect, table);
+
+  let columns: string[] | null = null;
+  let rows = 0;
+  let first = true;
+  const progress = () => opts.onProgress?.(rows);
+
+  /** Write one page of rows; handles the header/opening-bracket once. */
+  const emit = async (cols: string[], page: unknown[][]): Promise<void> => {
+    if (page.length === 0) return;
+    if (columns === null) {
+      columns = cols;
+      if (format === 'csv') await streamWrite(out, cols.map(escCsv).join(',') + '\n');
+      else await streamWrite(out, '[');
+    }
+    if (format === 'csv') {
+      await streamWrite(out, page.map(csvLine).join('\n') + '\n');
+    } else {
+      const sep = first ? '' : ',';
+      await streamWrite(out, sep + page.map((r) => jsonLine(cols, r)).join(','));
+    }
+    first = false;
+    rows += page.length;
+    progress();
+  };
+
+  try {
+    if (db.dialect === 'sqlite') {
+      // Single-pass lazy iteration — no OFFSET degradation, flat memory.
+      const handle = (db as any).db;
+      const stmt = handle.prepare(`SELECT * FROM ${qualified}`);
+      let page: unknown[][] = [];
+      let cols: string[] | null = null;
+      for (const record of stmt.iterate()) {
+        const obj = { ...(record as Record<string, unknown>) };
+        if (cols === null) cols = Object.keys(obj);
+        page.push(Object.values(obj).map(cellToExport));
+        if (page.length >= chunkRows) {
+          await emit(cols, page);
+          page = [];
+        }
+      }
+      if (cols === null) {
+        // Empty table: still emit a header from the catalog.
+        const info = await db.describeTable(table);
+        cols = info?.columns.map((c) => c.name) ?? [];
+        await emit(cols, []);
+        if (columns === null) {
+          // emit() skips empty pages — write the header directly.
+          if (format === 'csv') await streamWrite(out, cols.map(escCsv).join(',') + '\n');
+          else await streamWrite(out, '[');
+          columns = cols;
+        }
+      } else if (page.length > 0) {
+        await emit(cols, page);
+      }
+    } else {
+      // Server dialects: page through the table in fixed chunks.
+      let offset = 0;
+      for (;;) {
+        const page = await readPage(db, qualified, offset, chunkRows);
+        if (page.rows.length === 0) break;
+        await emit(page.columns, page.rows);
+        offset += page.rows.length;
+        if (page.rows.length < chunkRows) break;
+      }
+    }
+    if (format === 'json') await streamWrite(out, columns === null ? '[]' : ']');
+    else if (columns === null) {
+      // Empty table on a server dialect: header from the catalog.
+      const info = await db.describeTable(table);
+      const cols = info?.columns.map((c) => c.name) ?? [];
+      await streamWrite(out, cols.map(escCsv).join(',') + '\n');
+    }
+    await streamEnd(out);
+  } catch (err) {
+    out.destroy();
+    throw err;
+  }
+  return { file: outPath, rows, bytes: statSync(outPath).size, elapsedMs: Date.now() - t0 };
+}
+
+/** Normalize driver-specific cell values for export (BigInt/Date/Buffer). */
+function cellToExport(v: unknown): unknown {
+  if (typeof v === 'bigint') return v.toString();
+  if (v instanceof Date) return v.toISOString();
+  if (v instanceof Uint8Array || (typeof Buffer !== 'undefined' && v instanceof Buffer)) {
+    return `<binary ${v.length} bytes>`;
+  }
+  if (v !== null && typeof v === 'object') return JSON.stringify(v);
+  return v;
+}
+
+/** One page of a server table via native handles (LIMIT/OFFSET family). */
+async function readPage(
+  db: DatabaseDriver,
+  qualified: string,
+  offset: number,
+  limit: number,
+): Promise<{ columns: string[]; rows: unknown[][] }> {
+  if (db.dialect === 'postgres') {
+    const { rows, fields } = await (db as any).pool.query(
+      `SELECT * FROM ${qualified} LIMIT ${limit} OFFSET ${offset}`,
+    );
+    const columns = (fields ?? []).map((f: any) => f.name ?? String(f));
+    return { columns, rows: rows.map((r: any) => Object.values(r).map(cellToExport)) };
+  }
+  if (db.dialect === 'mysql') {
+    const conn = await (db as any).ensureConnection();
+    const [rows, fields] = await conn.query(
+      `SELECT * FROM ${qualified} LIMIT ${limit} OFFSET ${offset}`,
+    );
+    const columns = (fields ?? []).map((f: any) => f.name ?? String(f));
+    const arr = Array.isArray(rows) ? rows : [rows];
+    return { columns, rows: arr.map((r: any) => Object.values(r).map(cellToExport)) };
+  }
+  // sqlserver: OFFSET/FETCH needs ORDER BY; (SELECT NULL) keeps it a pure dump.
+  const pool = await (db as any).ensurePool();
+  const res = await pool
+    .request()
+    .query(
+      `SELECT * FROM ${qualified} ORDER BY (SELECT NULL) OFFSET ${offset} ROWS FETCH NEXT ${limit} ROWS ONLY`,
+    );
+  const recordset = res.recordset ?? [];
+  const columns =
+    recordset.columns && Object.keys(recordset.columns).length > 0
+      ? Object.keys(recordset.columns)
+      : recordset[0]
+        ? Object.keys(recordset[0])
+        : [];
+  return { columns, rows: recordset.map((r: any) => columns.map((c) => cellToExport(r[c]))) };
 }
 
 /* ─────────────────── import ─────────────────── */
@@ -292,17 +475,54 @@ export function parseCsv(text: string): { headers: string[]; rows: string[][] } 
   return { headers, rows };
 }
 
+export interface ImportOptions {
+  /** Rows per INSERT statement (default 500, clamped by the driver param budget). */
+  batchRows?: number;
+  createTable?: boolean;
+  /** Progress callback with the cumulative inserted count. */
+  onProgress?: (inserted: number) => void;
+}
+
+export interface ImportResult {
+  inserted: number;
+  table: string;
+  batches: number;
+  elapsedMs: number;
+}
+
+/** Max bind parameters per statement per dialect (conservative budgets). */
+function maxParams(dialect: DatabaseDialect): number {
+  switch (dialect) {
+    case 'sqlite':
+      return 900; // old SQLite variable limit is 999
+    case 'postgres':
+      return 60000; // protocol limit is 65535
+    case 'mysql':
+      return Infinity; // bulk VALUES ? — chunk by rows instead
+    case 'sqlserver':
+      return 2000; // limit is 2100
+  }
+}
+
+function clampBatch(requested: number, cols: number, dialect: DatabaseDialect): number {
+  const byParams = Math.floor(maxParams(dialect) / Math.max(1, cols));
+  const cap = dialect === 'mysql' ? 1000 : byParams;
+  return Math.max(1, Math.min(requested, cap));
+}
+
 export async function importCsv(
   db: DatabaseDriver,
   csvPath: string,
   table: string,
-  opts: { batchRows?: number; createTable?: boolean } = {},
-): Promise<{ inserted: number; table: string }> {
+  opts: { batchRows?: number; createTable?: boolean } | ImportOptions = {},
+): Promise<ImportResult> {
+  const t0 = Date.now();
   const text = await readFile(csvPath, 'utf8');
   const { headers, rows } = parseCsv(text);
   if (headers.length === 0 || rows.length === 0) {
     throw new Error('CSV is empty or malformed.');
   }
+  const onProgress = (opts as ImportOptions).onProgress;
 
   // Optionally create the table from header types (all TEXT unless numeric).
   // Privileged path (native handles, NOT db.execute): db.execute is the
@@ -326,35 +546,120 @@ export async function importCsv(
   }
 
   const cols = headers.map((h) => quoteIdent(db.dialect, h)).join(', ');
-  const placeholders =
-    db.dialect === 'postgres'
-      ? headers.map((_, i) => `$${i + 1}`).join(', ')
-      : db.dialect === 'sqlserver'
-        ? headers.map((_, i) => `@p${i}`).join(', ')
-        : headers.map(() => '?').join(', ');
-  const sql = `INSERT INTO ${quoteIdent(db.dialect, table)} (${cols}) VALUES (${placeholders})`;
-
-  // Batch inserts through the driver — one statement per call.
+  const target = quoteIdent(db.dialect, table);
+  const batch = clampBatch(opts.batchRows ?? 500, headers.length, db.dialect);
   let inserted = 0;
-  for (const row of rows) {
-    // sqlite (node:sqlite) and mysql accept ?; pg accepts $n; sqlserver uses
-    // named @p0..@pn inputs — pick the right wiring per dialect.
-    if (db.dialect === 'postgres') {
-      await (db as any).pool.query(sql, row);
-    } else if (db.dialect === 'mysql') {
-      const conn = await (db as any).ensureConnection();
-      await conn.execute(sql, row);
-    } else if (db.dialect === 'sqlserver') {
-      const pool = await (db as any).ensurePool();
-      const req = pool.request();
-      row.forEach((v, i) => req.input(`p${i}`, v));
-      await req.query(sql);
-    } else {
-      (db as any).db.prepare(sql).run(...row);
+  let batches = 0;
+  const report = () => onProgress?.(inserted);
+
+  // One transaction for the whole load: on SQLite this alone removes a
+  // fsync per row; everywhere it makes the import atomic.
+  if (db.dialect === 'sqlite') {
+    const handle = (db as any).db;
+    handle.exec('BEGIN');
+    try {
+      for (let i = 0; i < rows.length; i += batch) {
+        const chunk = rows.slice(i, i + batch);
+        const marks = chunk.map(() => `(${headers.map(() => '?').join(',')})`).join(',');
+        handle.prepare(`INSERT INTO ${target} (${cols}) VALUES ${marks}`).run(...chunk.flat());
+        inserted += chunk.length;
+        batches++;
+        report();
+      }
+      handle.exec('COMMIT');
+    } catch (err) {
+      try {
+        handle.exec('ROLLBACK');
+      } catch {
+        /* already failed */
+      }
+      throw err;
     }
-    inserted++;
+  } else if (db.dialect === 'postgres') {
+    const client = await (db as any).pool.connect();
+    try {
+      await client.query('BEGIN');
+      for (let i = 0; i < rows.length; i += batch) {
+        const chunk = rows.slice(i, i + batch);
+        const marks: string[] = [];
+        const flat: unknown[] = [];
+        chunk.forEach((row, r) => {
+          marks.push(`(${row.map((_, c) => `$${r * row.length + c + 1}`).join(',')})`);
+          flat.push(...row);
+        });
+        await client.query(`INSERT INTO ${target} (${cols}) VALUES ${marks.join(',')}`, flat);
+        inserted += chunk.length;
+        batches++;
+        report();
+      }
+      await client.query('COMMIT');
+    } catch (err) {
+      try {
+        await client.query('ROLLBACK');
+      } catch {
+        /* already failed */
+      }
+      throw err;
+    } finally {
+      client.release();
+    }
+  } else if (db.dialect === 'mysql') {
+    const conn = await (db as any).ensureConnection();
+    await conn.beginTransaction();
+    try {
+      // mysql2 bulk-insert syntax: one round-trip per chunk.
+      for (let i = 0; i < rows.length; i += batch) {
+        const chunk = rows.slice(i, i + batch);
+        await conn.query(`INSERT INTO ${target} (${cols}) VALUES ?`, [chunk]);
+        inserted += chunk.length;
+        batches++;
+        report();
+      }
+      await conn.commit();
+    } catch (err) {
+      try {
+        await conn.rollback();
+      } catch {
+        /* already failed */
+      }
+      throw err;
+    }
+  } else {
+    const pool = await (db as any).ensurePool();
+    let mssql: any;
+    try {
+      const mod: any = await import('mssql');
+      mssql = mod.default ?? mod;
+    } catch {
+      throw new Error('mssql is not installed. Run: npm install mssql');
+    }
+    const trx = new mssql.Transaction(pool);
+    await trx.begin();
+    try {
+      for (let i = 0; i < rows.length; i += batch) {
+        const chunk = rows.slice(i, i + batch);
+        const req = new mssql.Request(trx);
+        const marks: string[] = [];
+        chunk.forEach((row, r) => {
+          marks.push(`(${row.map((_, c) => `@p${r * row.length + c}`).join(',')})`);
+          row.forEach((v, c) => req.input(`p${r * row.length + c}`, v));
+        });
+        await req.query(`INSERT INTO ${target} (${cols}) VALUES ${marks.join(',')}`);
+        inserted += chunk.length;
+        batches++;
+        report();
+      }
+      await trx.commit();
+    } catch (err) {
+      try {
+        await trx.rollback();
+      } catch {
+        /* already failed */
+      }
+      throw err;
+    }
   }
-  return { inserted, table };
+  return { inserted, table, batches, elapsedMs: Date.now() - t0 };
 }
 
 /* ─────────────────── backup ─────────────────── */

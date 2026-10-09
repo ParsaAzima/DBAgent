@@ -16,7 +16,7 @@ import {
   toCsv,
 } from '../dist/system/ops.js';
 import { discoverLocalDatabases } from '../dist/system/discover.js';
-import { readFileSync, existsSync, statSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, statSync } from 'node:fs';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -88,6 +88,43 @@ check('import verified count', Number(verify.rows[0][0]) === 5);
 // cleanup imported table (privileged native handle: DROP is never allowed
 // via db.execute, in any mode — the test acts as the operator here)
 db.db.exec('DROP TABLE customers_import_test');
+
+// 5b. import/export at scale: 3000 rows with hostile quoting must stream in
+// well under the old per-row path (and exports must not stop at maxRows=100)
+const BIG = 3000;
+let bigCsv = 'id,name,note\n';
+for (let i = 0; i < BIG; i++) {
+  const note = i % 5 === 0 ? `a"b\nc,d ✓ ${i}` : `n${i}`;
+  const cells = [`r${i}`, `Name, ${i}`, note];
+  bigCsv +=
+    cells.map((v) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v)).join(',') + '\n';
+}
+writeFileSync(join(outDir, 'big.csv'), bigCsv);
+const tImp = Date.now();
+const bigImp = await importCsv(db, join(outDir, 'big.csv'), 'scale_test', { createTable: true });
+const impMs = Date.now() - tImp;
+check('scale import count', bigImp.inserted === BIG, JSON.stringify(bigImp));
+check('scale import fast (<15s)', impMs < 15000, `${impMs}ms`);
+check('scale import batched', bigImp.batches < BIG);
+const tExp = Date.now();
+const bigExp = await exportTable(db, 'scale_test', 'csv', join(outDir, 'big-out.csv'));
+const expMs = Date.now() - tExp;
+check('scale export full (not truncated at maxRows)', bigExp.rows === BIG, String(bigExp.rows));
+check('scale export fast (<15s)', expMs < 15000, `${expMs}ms`);
+const bigBack = parseCsv(readFileSync(join(outDir, 'big-out.csv'), 'utf8'));
+check('scale round-trip count', bigBack.rows.length === BIG);
+check(
+  'scale round-trip tricky value',
+  bigBack.rows[10][2] === 'a"b\nc,d ✓ 10',
+  JSON.stringify(bigBack.rows[10]?.[2]),
+);
+const bigJson = await exportTable(db, 'scale_test', 'json', join(outDir, 'big-out.json'));
+check(
+  'scale json full',
+  bigJson.rows === BIG &&
+    JSON.parse(readFileSync(join(outDir, 'big-out.json'), 'utf8')).length === BIG,
+);
+db.db.exec('DROP TABLE scale_test');
 
 // 6. backup via VACUUM INTO
 const bak = await backup(db, join(outDir, 'demo-backup.db'));
