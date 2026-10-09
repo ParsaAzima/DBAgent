@@ -32,5 +32,10 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Seed demo database
+        # demo.db is gitignored, but the smoke/e2e suites run against it —
+        # without a seed, sqlite creates an empty file and table lookups fail.
+        run: node scripts/make-demo-sqlite.mjs
+
       - name: Tests (130+ checks, mocked LLMs — no API keys needed)
         run: npm test
