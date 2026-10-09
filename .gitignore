@@ -10,3 +10,8 @@ dist/
 *.sqlite
 *.sqlite3
 .freebuff/
+
+# runtime outputs (exports, backups) and scratch verification scripts
+dbagent-out/
+tmp-*
+*.bak

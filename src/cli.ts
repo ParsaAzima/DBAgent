@@ -9,6 +9,7 @@
  */
 
 import { createInterface } from 'node:readline';
+import { createRequire } from 'node:module';
 import { Command } from 'commander';
 import { Agent } from './core/agent.js';
 import type { AgentHooks } from './core/types.js';
@@ -29,6 +30,23 @@ function redactDbUrl(url: string): string {
   return url.replace(/\/\/([^:/@]+):([^@]+)@/, '//$1:***@');
 }
 
+/**
+ * Single source of truth for the CLI version: package.json.
+ * Works from src/ (tsx) and dist/ (compiled) — both sit one level deep.
+ */
+function packageVersion(): string {
+  try {
+    const require = createRequire(import.meta.url);
+    const pkg = require('../package.json') as { version?: unknown };
+    if (typeof pkg.version === 'string' && pkg.version) return pkg.version;
+  } catch {
+    /* fall through to dev fallback */
+  }
+  return '0.0.0-dev';
+}
+
+const CLI_VERSION = packageVersion();
+
 async function withDb<T>(
   dbUrl: string,
   safety: { allowWrites: boolean; maxRows: number; ddlMode?: import('./core/types.js').DdlMode },
@@ -47,7 +65,7 @@ const program = new Command();
 program
   .name('dbagent')
   .description('AI-powered database agent — ask questions in natural language, get SQL answers.')
-  .version('0.1.0');
+  .version(CLI_VERSION);
 
 program
   .command('chat')
@@ -195,7 +213,7 @@ program
       return;
     }
 
-    console.log(`DBAgent v0.1.0 (plain REPL)`);
+    console.log(`DBAgent v${CLI_VERSION} (plain REPL)`);
     console.log(`  DB      : ${db.describeTarget()}  (${redactDbUrl(cfg.dbUrl)})`);
     console.log(`  Model   : ${cfg.llm.id}/${cfg.llm.model}`);
     console.log(

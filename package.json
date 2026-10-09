@@ -8,6 +8,20 @@
   "bin": {
     "dbagent": "dist/cli.js"
   },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "author": "RoNiN",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ParsaAzima/DBAgent.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ParsaAzima/DBAgent/issues"
+  },
+  "homepage": "https://github.com/ParsaAzima/DBAgent#readme",
   "engines": {
     "node": ">=20"
   },
@@ -15,6 +29,7 @@
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/cli.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepublishOnly": "npm run build",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
