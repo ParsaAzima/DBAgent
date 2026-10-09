@@ -10,13 +10,7 @@ import { join, resolve } from 'node:path';
 import { mkdir } from 'node:fs/promises';
 import type { DatabaseDriver } from '../core/types.js';
 import type { ToolHandler } from './index.js';
-import {
-  collectStats,
-  collectSystemInfo,
-  exportTable,
-  importCsv,
-  backup,
-} from '../system/ops.js';
+import { collectStats, collectSystemInfo, exportTable, importCsv, backup } from '../system/ops.js';
 import { discoverLocalDatabases } from '../system/discover.js';
 
 export const DEFAULT_OUT_DIR = 'dbagent-out';
@@ -49,9 +43,7 @@ export interface SystemToolDeps {
 }
 
 /** Build handler closures capturing the driver and gate flags. */
-export function createSystemToolRegistry(
-  deps: SystemToolDeps,
-): Map<string, ToolHandler> {
+export function createSystemToolRegistry(deps: SystemToolDeps): Map<string, ToolHandler> {
   const { db, allowSystem } = deps;
   const registry = new Map<string, ToolHandler>();
 
@@ -78,9 +70,7 @@ export function createSystemToolRegistry(
     const table = String(args.table ?? '').trim();
     if (!table) throw new Error('export_data requires "table".');
     const format = args.format === 'json' ? 'json' : 'csv';
-    const file = await outPath(
-      `${table.replace(/[^\w.-]/g, '_')}.${format}`,
-    );
+    const file = await outPath(`${table.replace(/[^\w.-]/g, '_')}.${format}`);
     return exportTable(db, table, format, resolveUserPath(file));
   });
 
@@ -97,12 +87,11 @@ export function createSystemToolRegistry(
 
   registry.set('backup', async (args) => {
     guard('backup');
-    const requested = typeof args.file === 'string' && args.file.trim() ? args.file.trim() : undefined;
+    const requested =
+      typeof args.file === 'string' && args.file.trim() ? args.file.trim() : undefined;
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     const ext = db.dialect === 'sqlserver' ? '.bak' : '.sql';
-    const file = await outPath(
-      requested ?? `backup-${db.dialect}-${stamp}${ext}`,
-    );
+    const file = await outPath(requested ?? `backup-${db.dialect}-${stamp}${ext}`);
     return backup(db, resolveUserPath(file));
   });
 

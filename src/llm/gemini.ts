@@ -87,9 +87,10 @@ export class GeminiAdapter implements LLMAdapter {
       .map((p, i) => ({
         id: `gem_call_${Date.now()}_${i}`,
         name: p.functionCall.name,
-        args: typeof p.functionCall.args === 'object' && p.functionCall.args !== null
-          ? p.functionCall.args
-          : {},
+        args:
+          typeof p.functionCall.args === 'object' && p.functionCall.args !== null
+            ? p.functionCall.args
+            : {},
       }));
 
     return {

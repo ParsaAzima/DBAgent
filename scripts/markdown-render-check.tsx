@@ -72,7 +72,10 @@ check('inline code no backticks', !out.includes('`Q3`') && out.includes('Q3'));
 check('strike applied', !out.includes('~~some noise~~') && out.includes('some noise'));
 check('nested list rendered', out.includes('ali (iran branch)') && out.includes('top customers'));
 check('ordered list numbers', out.includes('1. first item'));
-check('link rendered with url', out.includes('OpenRouter docs') && out.includes('https://openrouter.ai/docs'));
+check(
+  'link rendered with url',
+  out.includes('OpenRouter docs') && out.includes('https://openrouter.ai/docs'),
+);
 check('code block drawn', out.includes('SELECT name, total') && out.includes('│'));
 check('table box drawn', out.includes('┌') && /│\s*ali/.test(out) && out.includes('│ 124'));
 check('no raw table pipes header', !out.includes('| name  | total |'));

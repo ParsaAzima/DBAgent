@@ -24,7 +24,8 @@ import {
  * not start with a recognized write keyword (EXEC can run anything, BULK
  * INSERT loads data, BACKUP/RESTORE/DBCC are administrative).
  */
-const TSQL_GATED = /^(?:EXEC(?:UTE)?\b|BULK\b|BACKUP\b|RESTORE\b|SHUTDOWN\b|KILL\b|RECONFIGURE\b|DBCC\b)/i;
+const TSQL_GATED =
+  /^(?:EXEC(?:UTE)?\b|BULK\b|BACKUP\b|RESTORE\b|SHUTDOWN\b|KILL\b|RECONFIGURE\b|DBCC\b)/i;
 
 export class SqlServerDriver implements DatabaseDriver {
   readonly dialect = 'sqlserver' as const;

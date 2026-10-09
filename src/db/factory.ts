@@ -10,7 +10,12 @@
  *   mssql://...                       (alias)
  */
 
-import type { DatabaseConnection, DatabaseDialect, DatabaseDriver, SafetyConfig } from '../core/types.js';
+import type {
+  DatabaseConnection,
+  DatabaseDialect,
+  DatabaseDriver,
+  SafetyConfig,
+} from '../core/types.js';
 import { SqliteDriver } from './sqlite.js';
 import { PostgresDriver } from './postgres.js';
 import { MysqlDriver } from './mysql.js';
@@ -26,7 +31,11 @@ export function parseDatabaseUrl(url: string): DatabaseConnection {
       .replace(/^file:/, '');
     if (target.startsWith('/')) {
       // sqlite:///abs/path.db keeps the absolute path; sqlite://./x.db does not
-      if (!trimmed.startsWith('sqlite:////') && !trimmed.startsWith('file:////') && target.match(/^\/[A-Za-z]:/)) {
+      if (
+        !trimmed.startsWith('sqlite:////') &&
+        !trimmed.startsWith('file:////') &&
+        target.match(/^\/[A-Za-z]:/)
+      ) {
         // windows drive path like /C:/x.db — strip leading slash
         target = target.slice(1);
       }
@@ -38,7 +47,10 @@ export function parseDatabaseUrl(url: string): DatabaseConnection {
   // it (or silently turns the backslash into a path separator) — steer users
   // to the query-param form before parsing.
   const scheme = trimmed.match(/^([a-z][a-z0-9+.-]*):\/\//i)?.[1]?.toLowerCase();
-  if ((scheme === 'sqlserver' || scheme === 'mssql') && /^[^/?]*\\/.test(trimmed.replace(/^[^:]+:\/\//, ''))) {
+  if (
+    (scheme === 'sqlserver' || scheme === 'mssql') &&
+    /^[^/?]*\\/.test(trimmed.replace(/^[^:]+:\/\//, ''))
+  ) {
     throw new Error(
       `Named instance in "${trimmed}" must use ?instance=NAME, e.g. sqlserver://user:pass@host/mydb?instance=SQLEXPRESS.`,
     );
@@ -59,7 +71,9 @@ export function parseDatabaseUrl(url: string): DatabaseConnection {
             })();
 
   const sslParam = parsed.searchParams.get('ssl') ?? parsed.searchParams.get('sslmode');
-  const ssl = sslParam ? ['1', 'true', 'require', 'yes'].includes(sslParam.toLowerCase()) : undefined;
+  const ssl = sslParam
+    ? ['1', 'true', 'require', 'yes'].includes(sslParam.toLowerCase())
+    : undefined;
 
   if (dialect === 'sqlserver') {
     const encryptParam = parsed.searchParams.get('encrypt');
@@ -67,7 +81,9 @@ export function parseDatabaseUrl(url: string): DatabaseConnection {
     const asBool = (v: string | null): boolean | undefined =>
       v === null ? undefined : ['1', 'true', 'require', 'yes'].includes(v.toLowerCase());
     const instance = parsed.searchParams.get('instance') ?? parsed.searchParams.get('instanceName');
-    const database = parsed.pathname ? decodeURIComponent(parsed.pathname.replace(/^\//, '')) : undefined;
+    const database = parsed.pathname
+      ? decodeURIComponent(parsed.pathname.replace(/^\//, ''))
+      : undefined;
     return {
       dialect,
       target: `${parsed.hostname ?? 'localhost'}:${parsed.port || '1433'}/${database ?? ''}`,
@@ -95,10 +111,7 @@ export function parseDatabaseUrl(url: string): DatabaseConnection {
   };
 }
 
-export function createDatabaseDriver(
-  url: string,
-  safety: SafetyConfig = {},
-): DatabaseDriver {
+export function createDatabaseDriver(url: string, safety: SafetyConfig = {}): DatabaseDriver {
   const conn = parseDatabaseUrl(url);
   switch (conn.dialect) {
     case 'sqlite':

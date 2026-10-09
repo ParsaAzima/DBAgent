@@ -60,9 +60,9 @@ export class SqliteDriver implements DatabaseDriver {
     for (const t of tables) {
       let rowCount = 0;
       try {
-        const row = this.db
-          .prepare(`SELECT COUNT(*) AS c FROM "${escapeIdent(t.name)}"`)
-          .get() as { c: number };
+        const row = this.db.prepare(`SELECT COUNT(*) AS c FROM "${escapeIdent(t.name)}"`).get() as {
+          c: number;
+        };
         rowCount = Number(row.c);
       } catch {
         /* virtual tables etc. — leave estimate 0 */

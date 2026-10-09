@@ -31,7 +31,11 @@ const check = (name, cond, detail = '') => {
   check('url: user decoded', c.user === 'sa', c.user);
   check('url: password url-decoded', c.password === 'P@ss', c.password);
   check('url: encrypt param', c.ssl === true, String(c.ssl));
-  check('url: trustServerCertificate param', c.trustServerCertificate === false, String(c.trustServerCertificate));
+  check(
+    'url: trustServerCertificate param',
+    c.trustServerCertificate === false,
+    String(c.trustServerCertificate),
+  );
 
   const alias = parseDatabaseUrl('mssql://sa@sqlhost/prod');
   check('url: mssql:// alias', alias.dialect === 'sqlserver');
@@ -56,7 +60,11 @@ const check = (name, cond, detail = '') => {
   } catch (err) {
     instanceHint = err.message;
   }
-  check('url: host\\INSTANCE form gets a helpful error', instanceHint.includes('?instance='), instanceHint);
+  check(
+    'url: host\\INSTANCE form gets a helpful error',
+    instanceHint.includes('?instance='),
+    instanceHint,
+  );
 }
 
 // ── 2. Driver wiring (constructor never connects) ──────────────────────────
@@ -87,7 +95,11 @@ const check = (name, cond, detail = '') => {
     enforceLimit('SELECT TOP (5) * FROM t', 10, 'sqlserver') === 'SELECT TOP (5) * FROM t',
   );
   const ordered = enforceLimit('SELECT a FROM t ORDER BY a', 10, 'sqlserver');
-  check('limit: ordered SELECT capped with TOP', ordered === 'SELECT TOP (10) a FROM t ORDER BY a', ordered);
+  check(
+    'limit: ordered SELECT capped with TOP',
+    ordered === 'SELECT TOP (10) a FROM t ORDER BY a',
+    ordered,
+  );
   const cte = enforceLimit('WITH x AS (SELECT a FROM t) SELECT a FROM x', 10, 'sqlserver');
   check('limit: CTE wrapped with TOP', cte.startsWith('SELECT TOP (10) * FROM (\n'), cte);
   const cteOrdered = enforceLimit(
@@ -101,7 +113,11 @@ const check = (name, cond, detail = '') => {
     cteOrdered,
   );
   const union = enforceLimit('SELECT a FROM t UNION SELECT a FROM u', 10, 'sqlserver');
-  check('limit: UNION wrapped (TOP only caps one branch otherwise)', union.startsWith('SELECT TOP (10) * FROM (\n'), union);
+  check(
+    'limit: UNION wrapped (TOP only caps one branch otherwise)',
+    union.startsWith('SELECT TOP (10) * FROM (\n'),
+    union,
+  );
   const unionOrdered = enforceLimit(
     'SELECT a FROM t UNION SELECT a FROM u ORDER BY a',
     10,
@@ -114,8 +130,11 @@ const check = (name, cond, detail = '') => {
   );
   check(
     'limit: paged query not re-limited',
-    enforceLimit('SELECT a FROM t ORDER BY a OFFSET 0 ROWS FETCH NEXT 3 ROWS ONLY', 10, 'sqlserver') ===
+    enforceLimit(
       'SELECT a FROM t ORDER BY a OFFSET 0 ROWS FETCH NEXT 3 ROWS ONLY',
+      10,
+      'sqlserver',
+    ) === 'SELECT a FROM t ORDER BY a OFFSET 0 ROWS FETCH NEXT 3 ROWS ONLY',
   );
   check(
     'limit: EXPLAIN untouched',
@@ -156,14 +175,17 @@ const check = (name, cond, detail = '') => {
     'guard: bracketed [update] column stays read',
     classifyStatement('SELECT [update] FROM t') === 'read',
   );
-  check('guard: singleStatement still rejects chains', (() => {
-    try {
-      singleStatement('SELECT 1; DROP TABLE t', 1);
-      return false;
-    } catch {
-      return true;
-    }
-  })());
+  check(
+    'guard: singleStatement still rejects chains',
+    (() => {
+      try {
+        singleStatement('SELECT 1; DROP TABLE t', 1);
+        return false;
+      } catch {
+        return true;
+      }
+    })(),
+  );
 }
 
 // ── 5. Dialect-aware system prompt ─────────────────────────────────────────

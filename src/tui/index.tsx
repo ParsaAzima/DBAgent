@@ -22,7 +22,6 @@ export interface RenderTuiOptions {
   onSave?: (transcript?: unknown[]) => void;
 }
 
-
 export function renderTui(opts: RenderTuiOptions): { waitUntilExit: Promise<void> } {
   const { waitUntilExit } = render(
     <Tui

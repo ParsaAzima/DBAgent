@@ -18,7 +18,14 @@ import { Transcript, LiveTurn, StatusBar } from './components.js';
 import { TableView, pickLatestTable } from './table-viewer.js';
 import { ChatInput } from './input.js';
 import type { TranscriptItem, ToolRun, UsageInfo, TurnUsage } from './foundation.js';
-import { usageToInfo, fmtTokens, fmtCost, fmtDuration, argsSummaryOf, previewOf } from './foundation.js';
+import {
+  usageToInfo,
+  fmtTokens,
+  fmtCost,
+  fmtDuration,
+  argsSummaryOf,
+  previewOf,
+} from './foundation.js';
 
 export interface TuiProps {
   agent: Agent;
@@ -36,7 +43,8 @@ export interface TuiProps {
 }
 
 const EMPTY_USAGE: UsageInfo = { inputTokens: 0, outputTokens: 0, costUsd: 0 };
-const HINTS = 'esc stop · ctrl+t tool details · ctrl+o table view · /model · /schema · /help · /exit';
+const HINTS =
+  'esc stop · ctrl+t tool details · ctrl+o table view · /model · /schema · /help · /exit';
 
 interface Live {
   text: string;
@@ -84,7 +92,6 @@ export function Tui(props: TuiProps): React.ReactElement {
         `╰──────────────────────────────────────────╯`,
     });
     push({ role: 'info', text: `${props.db.describeTarget()} · session ${props.sessionLabel}` });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const accumulate = useCallback((u: TokenUsage) => {
@@ -149,7 +156,14 @@ export function Tui(props: TuiProps): React.ReactElement {
 
   const runTurn = useCallback(
     async (input: string) => {
-      const acc: Live = { text: '', tools: [], round: 1, startedAt: Date.now(), usage: EMPTY_USAGE, busy: true };
+      const acc: Live = {
+        text: '',
+        tools: [],
+        round: 1,
+        startedAt: Date.now(),
+        usage: EMPTY_USAGE,
+        busy: true,
+      };
       setLive(acc);
       const ctrl = new AbortController();
       abortRef.current = ctrl;
@@ -225,7 +239,10 @@ export function Tui(props: TuiProps): React.ReactElement {
               (t) =>
                 `▎${t.name} (${t.kind}, ~${t.rowCountEstimate ?? '?'} rows)\n` +
                 t.columns
-                  .map((c) => `   ${c.name}: ${c.dataType}${c.isPrimaryKey ? ' ⚿' : ''}${c.nullable ? '' : ' ∗'}`)
+                  .map(
+                    (c) =>
+                      `   ${c.name}: ${c.dataType}${c.isPrimaryKey ? ' ⚿' : ''}${c.nullable ? '' : ' ∗'}`,
+                  )
                   .join('\n'),
             )
             .join('\n');

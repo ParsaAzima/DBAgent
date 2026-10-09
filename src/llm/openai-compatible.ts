@@ -55,7 +55,7 @@ export class OpenAICompatibleAdapter implements LLMAdapter {
   ): Promise<LLMResponse> {
     const body: Record<string, unknown> = {
       model: this.model,
-      messages: [ { role: 'system', content: system }, ...messages.map(toOpenAIMessage) ],
+      messages: [{ role: 'system', content: system }, ...messages.map(toOpenAIMessage)],
       temperature: this.temperature,
       max_tokens: this.maxOutputTokens,
     };
@@ -97,9 +97,10 @@ export class OpenAICompatibleAdapter implements LLMAdapter {
       : undefined;
 
     return {
-      text: typeof message.content === 'string' && message.content.length > 0
-        ? message.content
-        : undefined,
+      text:
+        typeof message.content === 'string' && message.content.length > 0
+          ? message.content
+          : undefined,
       toolCalls,
       usage: json.usage
         ? {

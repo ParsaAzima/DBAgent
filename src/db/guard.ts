@@ -113,7 +113,9 @@ function tsqlLimit(s: string, maxRows: number): string {
 
   if (/^WITH\b/i.test(s)) {
     // ORDER BY is illegal inside a derived table without TOP, so page instead.
-    return /\bORDER\s+BY\b/i.test(s) ? page : `SELECT TOP (${maxRows}) * FROM (\n${s}\n) AS dbagent_limited`;
+    return /\bORDER\s+BY\b/i.test(s)
+      ? page
+      : `SELECT TOP (${maxRows}) * FROM (\n${s}\n) AS dbagent_limited`;
   }
   if (/^SELECT\b/i.test(s)) {
     // TOP only caps the first branch of UNION/INTERSECT/EXCEPT — page or wrap instead.

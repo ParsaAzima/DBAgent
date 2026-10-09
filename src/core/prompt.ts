@@ -13,12 +13,12 @@ export async function buildSystemPrompt(
   cfg: LLMProviderConfig,
 ): Promise<string> {
   const dialect = db.dialect;
-  const writesAllowed = process.env.DBAGENT_ALLOW_WRITES === 'true' ||
-    process.env.DBAGENT_ALLOW_WRITES === '1';
-  const systemAllowed = process.env.DBAGENT_ALLOW_SYSTEM === 'true' ||
-    process.env.DBAGENT_ALLOW_SYSTEM === '1';
-  const shellAllowed = process.env.DBAGENT_ALLOW_SHELL === 'true' ||
-    process.env.DBAGENT_ALLOW_SHELL === '1';
+  const writesAllowed =
+    process.env.DBAGENT_ALLOW_WRITES === 'true' || process.env.DBAGENT_ALLOW_WRITES === '1';
+  const systemAllowed =
+    process.env.DBAGENT_ALLOW_SYSTEM === 'true' || process.env.DBAGENT_ALLOW_SYSTEM === '1';
+  const shellAllowed =
+    process.env.DBAGENT_ALLOW_SHELL === 'true' || process.env.DBAGENT_ALLOW_SHELL === '1';
 
   const dialectNotes: Record<DatabaseDriver['dialect'], string> = {
     sqlite: [

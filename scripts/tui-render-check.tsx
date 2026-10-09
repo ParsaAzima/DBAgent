@@ -18,8 +18,20 @@ const mockDb: any = {
       kind: 'table' as const,
       rowCountEstimate: 2,
       columns: [
-        { name: 'id', dataType: 'INTEGER', nullable: false, isPrimaryKey: true, defaultValue: null },
-        { name: 'name', dataType: 'TEXT', nullable: false, isPrimaryKey: false, defaultValue: null },
+        {
+          name: 'id',
+          dataType: 'INTEGER',
+          nullable: false,
+          isPrimaryKey: true,
+          defaultValue: null,
+        },
+        {
+          name: 'name',
+          dataType: 'TEXT',
+          nullable: false,
+          isPrimaryKey: false,
+          defaultValue: null,
+        },
       ],
     },
   ],
@@ -52,7 +64,10 @@ const mockAgent: any = {
       preview: '1 row',
       data: { kind: 'table', columns: ['id'], rows: [[1]], rowCount: 1 },
     });
-    opts?.onEvent?.({ kind: 'usage', usage: { promptTokens: 120, completionTokens: 45, totalTokens: 165 } });
+    opts?.onEvent?.({
+      kind: 'usage',
+      usage: { promptTokens: 120, completionTokens: 45, totalTokens: 165 },
+    });
     opts?.onEvent?.({ kind: 'turn_done', text: 'MOCK-ANSWER-OK', rounds: 1 });
     return { text: 'MOCK-ANSWER-OK', rounds: 1 };
   },

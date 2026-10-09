@@ -15,7 +15,13 @@ import { fmtTokens, fmtCost, fmtDuration, fmtTime } from './foundation.js';
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
 /** Animated braille spinner that ticks on an interval. */
-export function Spinner({ label, color = 'cyan' }: { label: string; color?: string }): React.ReactElement {
+export function Spinner({
+  label,
+  color = 'cyan',
+}: {
+  label: string;
+  color?: string;
+}): React.ReactElement {
   const [frame, setFrame] = useState(0);
   useEffect(() => {
     const t = setInterval(() => setFrame((f) => (f + 1) % SPINNER_FRAMES.length), 80);
@@ -59,14 +65,20 @@ export function ToolBlock({
         ) : (
           <>
             <StatusIcon status={run.status} /> {title}
-            {run.durationMs !== undefined ? <Text dimColor> ({fmtDuration(run.durationMs)})</Text> : null}
+            {run.durationMs !== undefined ? (
+              <Text dimColor> ({fmtDuration(run.durationMs)})</Text>
+            ) : null}
             {run.preview ? <Text dimColor> — {run.preview}</Text> : null}
           </>
         )}
       </Text>
       {expanded && run.argsSummary && run.argsSummary.length > 0 && (
         <Box marginLeft={5} flexDirection="column">
-          <Text color="yellow">{run.name === 'query' || run.name === 'execute' ? run.argsSummary : `→ ${run.argsSummary}`}</Text>
+          <Text color="yellow">
+            {run.name === 'query' || run.name === 'execute'
+              ? run.argsSummary
+              : `→ ${run.argsSummary}`}
+          </Text>
         </Box>
       )}
       {expanded && run.data && run.data.rows.length > 0 && (

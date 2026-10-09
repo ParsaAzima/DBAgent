@@ -86,9 +86,10 @@ export function createFileToolRegistry(deps: FileToolDeps): Map<string, ToolHand
         `oldString matches ${occurrences} times. Provide more context or set allowMultiple:"true".`,
       );
     }
-    const updated = args.allowMultiple === true
-      ? content.split(oldString).join(newString)
-      : content.replace(oldString, newString);
+    const updated =
+      args.allowMultiple === true
+        ? content.split(oldString).join(newString)
+        : content.replace(oldString, newString);
     await writeFile(p, updated, 'utf8');
     return { path: p, replaced: occurrences, bytes: Buffer.byteLength(updated) };
   });
@@ -136,7 +137,10 @@ export function createFileToolRegistry(deps: FileToolDeps): Map<string, ToolHand
     const ext = String(args.ext ?? '.sql,.txt,.md,.csv,.json,.ts,.js,.py,.mjs');
     const extensions = ext.split(',').map((e) => e.trim().toLowerCase());
 
-    const all = globSync('**/*', { cwd, exclude: (f) => f.includes('node_modules') || f.includes('.git') });
+    const all = globSync('**/*', {
+      cwd,
+      exclude: (f) => f.includes('node_modules') || f.includes('.git'),
+    });
     const matches: { file: string; line: number; text: string }[] = [];
     for (const rel of all) {
       if (matches.length >= MAX_GREP_MATCHES) break;
@@ -169,7 +173,8 @@ export function createFileToolRegistry(deps: FileToolDeps): Map<string, ToolHand
     const p = resolveUserPath(String(args.path ?? ''));
     if (!existsSync(p)) throw new Error(`Not found: ${p}`);
     const st = statSync(p);
-    if (st.isDirectory()) throw new Error('Refusing to delete a directory. Use shell rm -rf explicitly if needed.');
+    if (st.isDirectory())
+      throw new Error('Refusing to delete a directory. Use shell rm -rf explicitly if needed.');
     await unlink(p);
     return { deleted: p };
   });

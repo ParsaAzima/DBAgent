@@ -42,10 +42,14 @@ export function createShellToolRegistry(deps: ShellToolDeps): Map<string, ToolHa
 
     return new Promise((resolve, reject) => {
       const isWin = process.platform === 'win32';
-      const child = spawn(isWin ? 'cmd.exe' : '/bin/sh', isWin ? ['/c', command] : ['-c', command], {
-        cwd,
-        windowsHide: true,
-      });
+      const child = spawn(
+        isWin ? 'cmd.exe' : '/bin/sh',
+        isWin ? ['/c', command] : ['-c', command],
+        {
+          cwd,
+          windowsHide: true,
+        },
+      );
 
       let stdout = '';
       let stderr = '';

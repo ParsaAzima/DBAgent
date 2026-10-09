@@ -73,7 +73,15 @@ export interface LLMResponse {
 export type AgentTurnEvent =
   | { kind: 'text_delta'; text: string }
   | { kind: 'tool_start'; id: string; name: string; args: Record<string, unknown> }
-  | { kind: 'tool_done'; id: string; name: string; ok: boolean; durationMs: number; preview: string; data?: ToolResultData }
+  | {
+      kind: 'tool_done';
+      id: string;
+      name: string;
+      ok: boolean;
+      durationMs: number;
+      preview: string;
+      data?: ToolResultData;
+    }
   | { kind: 'round_done'; round: number }
   | { kind: 'usage'; usage: TokenUsage }
   | { kind: 'turn_done'; text: string; rounds: number }

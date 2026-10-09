@@ -51,10 +51,12 @@ function hasTool(name: string): boolean {
   return !r.error;
 }
 
-export async function discoverLocalDatabases(opts: {
-  extraDirs?: string[];
-  maxFileDepth?: number;
-} = {}): Promise<Discovery> {
+export async function discoverLocalDatabases(
+  opts: {
+    extraDirs?: string[];
+    maxFileDepth?: number;
+  } = {},
+): Promise<Discovery> {
   const [pgUp, mysqlUp, sqlserverUp] = await Promise.all([
     probePort('127.0.0.1', 5432),
     probePort('127.0.0.1', 3306),
@@ -63,11 +65,26 @@ export async function discoverLocalDatabases(opts: {
 
   const servers: DiscoveredServer[] = [];
   if (pgUp)
-    servers.push({ kind: 'postgres', host: '127.0.0.1', port: 5432, hasDumpTool: hasTool('pg_dump') });
+    servers.push({
+      kind: 'postgres',
+      host: '127.0.0.1',
+      port: 5432,
+      hasDumpTool: hasTool('pg_dump'),
+    });
   if (mysqlUp)
-    servers.push({ kind: 'mysql', host: '127.0.0.1', port: 3306, hasDumpTool: hasTool('mysqldump') });
+    servers.push({
+      kind: 'mysql',
+      host: '127.0.0.1',
+      port: 3306,
+      hasDumpTool: hasTool('mysqldump'),
+    });
   if (sqlserverUp)
-    servers.push({ kind: 'sqlserver', host: '127.0.0.1', port: 1433, hasDumpTool: hasTool('sqlcmd') });
+    servers.push({
+      kind: 'sqlserver',
+      host: '127.0.0.1',
+      port: 1433,
+      hasDumpTool: hasTool('sqlcmd'),
+    });
 
   // shallow scan for sqlite files
   const dirs = [process.cwd(), ...(opts.extraDirs ?? [])];

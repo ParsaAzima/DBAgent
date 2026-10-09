@@ -49,14 +49,24 @@ export function loadSession(id: string): SessionFile | null {
   }
 }
 
-export function listSessions(): { id: string; updatedAt: string; provider: string; dbUrl: string }[] {
+export function listSessions(): {
+  id: string;
+  updatedAt: string;
+  provider: string;
+  dbUrl: string;
+}[] {
   const dir = sessionsDir();
   return readdirSync(dir)
     .filter((f) => f.endsWith('.json'))
     .map((f) => {
       try {
         const s = JSON.parse(readFileSync(join(dir, f), 'utf8')) as SessionFile;
-        return { id: s.id, updatedAt: s.updatedAt, provider: `${s.provider}/${s.model}`, dbUrl: s.dbUrl };
+        return {
+          id: s.id,
+          updatedAt: s.updatedAt,
+          provider: `${s.provider}/${s.model}`,
+          dbUrl: s.dbUrl,
+        };
       } catch {
         return { id: f, updatedAt: '?', provider: '?', dbUrl: '?' };
       }

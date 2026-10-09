@@ -40,13 +40,10 @@ export function ChatInput({
 
   return (
     <Text>
-      <Text color="blue" bold>{'you › '}</Text>
-      <TextInput
-        value={value}
-        onChange={setValue}
-        onSubmit={submit}
-        placeholder={placeholder}
-      />
+      <Text color="blue" bold>
+        {'you › '}
+      </Text>
+      <TextInput value={value} onChange={setValue} onSubmit={submit} placeholder={placeholder} />
     </Text>
   );
 }

@@ -61,14 +61,10 @@ export class AnthropicAdapter implements LLMAdapter {
       }));
     }
 
-    const json = await postJson(
-      `${this.baseUrl}/v1/messages`,
-      body,
-      {
-        'x-api-key': this.apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-    );
+    const json = await postJson(`${this.baseUrl}/v1/messages`, body, {
+      'x-api-key': this.apiKey,
+      'anthropic-version': '2023-06-01',
+    });
 
     const blocks: any[] = Array.isArray(json.content) ? json.content : [];
     const text = blocks
@@ -132,7 +128,11 @@ export class AnthropicAdapter implements LLMAdapter {
           toolCalls.push({ id: ev.id, name: ev.name, args: ev.args });
           sink(ev);
         } else if (ev.type === 'usage') {
-          usage = { ...usage, promptTokens: ev.promptTokens, completionTokens: ev.completionTokens };
+          usage = {
+            ...usage,
+            promptTokens: ev.promptTokens,
+            completionTokens: ev.completionTokens,
+          };
         } else if (ev.type === 'done') {
           stopReason = ev.stopReason;
         }

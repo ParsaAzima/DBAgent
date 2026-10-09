@@ -217,7 +217,11 @@ export async function streamAnthropic(
     switch (ev?.type) {
       case 'content_block_start':
         if (ev.content_block?.type === 'tool_use') {
-          blocks.set(ev.index ?? 0, { id: ev.content_block.id, name: ev.content_block.name, args: '' });
+          blocks.set(ev.index ?? 0, {
+            id: ev.content_block.id,
+            name: ev.content_block.name,
+            args: '',
+          });
         }
         break;
       case 'content_block_delta': {
@@ -232,7 +236,12 @@ export async function streamAnthropic(
       case 'content_block_stop': {
         const cur = blocks.get(ev.index ?? 0);
         if (cur) {
-          sink({ type: 'tool_call', id: cur.id, name: cur.name, args: safeParse(cur.args || '{}') });
+          sink({
+            type: 'tool_call',
+            id: cur.id,
+            name: cur.name,
+            args: safeParse(cur.args || '{}'),
+          });
           blocks.delete(ev.index ?? 0);
         }
         break;
@@ -308,7 +317,10 @@ export async function streamGemini(
           type: 'tool_call',
           id: `gem_${Date.now()}_${callIdx++}`,
           name: p.functionCall.name,
-          args: typeof p.functionCall.args === 'object' && p.functionCall.args !== null ? p.functionCall.args : {},
+          args:
+            typeof p.functionCall.args === 'object' && p.functionCall.args !== null
+              ? p.functionCall.args
+              : {},
         });
       }
     }

@@ -37,13 +37,28 @@ const server = createServer((req, res) => {
         send({ choices: [{ delta: { content: t } }] });
       }
       send({ choices: [{ delta: {}, finish_reason: 'stop' }] });
-      send({ choices: [{ delta: {} }], usage: { prompt_tokens: 5, completion_tokens: 9, total_tokens: 14 } });
+      send({
+        choices: [{ delta: {} }],
+        usage: { prompt_tokens: 5, completion_tokens: 9, total_tokens: 14 },
+      });
       res.write('data: [DONE]\n\n');
       res.end();
     } else {
       // Tool call streamed in fragments (name + arguments split).
-      send({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'tc1', function: { name: 'list_', arguments: '' } }] } }] });
-      send({ choices: [{ delta: { tool_calls: [{ index: 0, function: { name: 'tables', arguments: '{}' } }] } }] });
+      send({
+        choices: [
+          {
+            delta: {
+              tool_calls: [{ index: 0, id: 'tc1', function: { name: 'list_', arguments: '' } }],
+            },
+          },
+        ],
+      });
+      send({
+        choices: [
+          { delta: { tool_calls: [{ index: 0, function: { name: 'tables', arguments: '{}' } }] } },
+        ],
+      });
       send({ choices: [{ delta: {}, finish_reason: 'tool_calls' }] });
       res.write('data: [DONE]\n\n');
       res.end();
@@ -82,8 +97,16 @@ const turnDone = events.find((e) => e.kind === 'turn_done');
 
 check('stream flag sent in request body', sawStreamFlag);
 check('3 incremental text deltas received', deltas.length === 3, `got ${deltas.length}`);
-check('deltas in order → full text', result.text === 'Found 4 tables — done.', JSON.stringify(result.text));
-check('streamed tool_call reassembled (name split across chunks)', toolStarts[0]?.name === 'list_tables', toolStarts[0]?.name);
+check(
+  'deltas in order → full text',
+  result.text === 'Found 4 tables — done.',
+  JSON.stringify(result.text),
+);
+check(
+  'streamed tool_call reassembled (name split across chunks)',
+  toolStarts[0]?.name === 'list_tables',
+  toolStarts[0]?.name,
+);
 check('tool executed once', toolDones.length === 1 && toolDones[0].ok === true);
 check('turn_done emitted with rounds=2', turnDone?.rounds === 2);
 

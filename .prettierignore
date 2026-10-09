@@ -1,0 +1,8 @@
+dist/
+node_modules/
+dbagent-out/
+*.db
+*.sqlite*
+*.sqlite3
+package-lock.json
+.freebuff/

@@ -11,8 +11,7 @@ export function resolveUserPath(p: string): string {
   const outDir = process.env.DBAGENT_OUT_DIR ? resolve(process.env.DBAGENT_OUT_DIR) : null;
 
   const insideCwd = abs === cwd || abs.startsWith(cwd + sep);
-  const insideOutDir =
-    outDir !== null && (abs === outDir || abs.startsWith(outDir + sep));
+  const insideOutDir = outDir !== null && (abs === outDir || abs.startsWith(outDir + sep));
 
   if (!insideCwd && !insideOutDir && process.env.DBAGENT_ANY_PATH !== '1') {
     throw new Error(

@@ -62,7 +62,9 @@ function check(name, cond, detail = '') {
 // ── 2. SELECT gets LIMIT appended ───────────────────────────────────────────
 {
   const llm = makeScriptedLLM([
-    () => ({ toolCalls: [{ id: 'c1', name: 'query', args: { sql: 'SELECT name FROM customers' } }] }),
+    () => ({
+      toolCalls: [{ id: 'c1', name: 'query', args: { sql: 'SELECT name FROM customers' } }],
+    }),
     (messages) => {
       const toolMsg = messages[messages.length - 1];
       const result = toolMsg?.toolResult?.result;
@@ -77,7 +79,7 @@ function check(name, cond, detail = '') {
 // ── 3. Write blocked in read-only mode ──────────────────────────────────────
 {
   const llm = makeScriptedLLM([
-    () => ({ toolCalls: [{ id: 'c1', name: 'execute', args: { sql: "DELETE FROM orders" } }] }),
+    () => ({ toolCalls: [{ id: 'c1', name: 'execute', args: { sql: 'DELETE FROM orders' } }] }),
     (messages) => {
       const toolMsg = messages[messages.length - 1];
       const failed = toolMsg?.toolResult?.ok === false;
@@ -111,8 +113,15 @@ function check(name, cond, detail = '') {
   const withLimit = enforceLimit('SELECT * FROM t', 10, 'sqlite');
   check('LIMIT appended to SELECT', /LIMIT 10\s*$/i.test(withLimit), withLimit);
   const wrapped = enforceLimit('WITH x AS (SELECT 1 AS a) SELECT a FROM x', 5, 'sqlite');
-  check('CTE wrapped with LIMIT', wrapped.startsWith('SELECT * FROM (') && /LIMIT 5\s*$/i.test(wrapped), wrapped);
-  check('existing LIMIT untouched', enforceLimit('SELECT * FROM t LIMIT 3', 10, 'sqlite') === 'SELECT * FROM t LIMIT 3');
+  check(
+    'CTE wrapped with LIMIT',
+    wrapped.startsWith('SELECT * FROM (') && /LIMIT 5\s*$/i.test(wrapped),
+    wrapped,
+  );
+  check(
+    'existing LIMIT untouched',
+    enforceLimit('SELECT * FROM t LIMIT 3', 10, 'sqlite') === 'SELECT * FROM t LIMIT 3',
+  );
   let threw = false;
   try {
     singleStatement('SELECT 1; DROP TABLE t', 1);

@@ -43,7 +43,11 @@ export function buildTools(db: DatabaseDriver, opts: BuildToolsOptions = {}): Bu
         type: 'object',
         description: 'Arguments for describe_table.',
         properties: {
-          table: { type: 'string', description: 'Table (or view) name. Use schema-qualified names like "public.users" when needed.' },
+          table: {
+            type: 'string',
+            description:
+              'Table (or view) name. Use schema-qualified names like "public.users" when needed.',
+          },
         },
         required: ['table'],
       },
@@ -70,7 +74,10 @@ export function buildTools(db: DatabaseDriver, opts: BuildToolsOptions = {}): Bu
         type: 'object',
         description: 'Arguments for query.',
         properties: {
-          sql: { type: 'string', description: `A single read-only ${'`'}SELECT${'`'} statement in the database's dialect.` },
+          sql: {
+            type: 'string',
+            description: `A single read-only ${'`'}SELECT${'`'} statement in the database's dialect.`,
+          },
         },
         required: ['sql'],
       },
@@ -143,7 +150,8 @@ export function buildTools(db: DatabaseDriver, opts: BuildToolsOptions = {}): Bu
         const name = String(args.table ?? '').trim();
         const limit = Number(args.limit ?? 5);
         if (!name) throw new Error('sample_rows requires "table".');
-        if (!Number.isFinite(limit) || limit < 1) throw new Error('"limit" must be a positive number.');
+        if (!Number.isFinite(limit) || limit < 1)
+          throw new Error('"limit" must be a positive number.');
         return db.sampleRows(name, limit);
       },
     ],
@@ -163,10 +171,7 @@ export function buildTools(db: DatabaseDriver, opts: BuildToolsOptions = {}): Bu
         return db.execute(sql);
       },
     ],
-    [
-      'performance_report',
-      async (args) => runPerformanceReport(db, { deep: !!args.deep }),
-    ],
+    ['performance_report', async (args) => runPerformanceReport(db, { deep: !!args.deep })],
     [
       'explain_query',
       async (args) => {
@@ -223,7 +228,10 @@ export function buildTools(db: DatabaseDriver, opts: BuildToolsOptions = {}): Bu
           properties: {
             file: { type: 'string', description: 'Path to the CSV file.' },
             table: { type: 'string', description: 'Target table name.' },
-            createTable: { type: 'boolean', description: 'Create the table from CSV headers (all TEXT columns).' },
+            createTable: {
+              type: 'boolean',
+              description: 'Create the table from CSV headers (all TEXT columns).',
+            },
           },
           required: ['file', 'table'],
         },
@@ -236,7 +244,11 @@ export function buildTools(db: DatabaseDriver, opts: BuildToolsOptions = {}): Bu
           type: 'object',
           description: 'Arguments for backup.',
           properties: {
-            file: { type: 'string', description: 'Optional output file name (defaults to timestamped name in ./dbagent-out/).' },
+            file: {
+              type: 'string',
+              description:
+                'Optional output file name (defaults to timestamped name in ./dbagent-out/).',
+            },
           },
           required: [],
         },
@@ -263,8 +275,14 @@ export function buildTools(db: DatabaseDriver, opts: BuildToolsOptions = {}): Bu
           type: 'object',
           description: 'Arguments for read_file.',
           properties: {
-            path: { type: 'string', description: 'File path (absolute, or relative to the working directory).' },
-            offset: { type: 'number', description: 'Line number to start from (0-based, default 0).' },
+            path: {
+              type: 'string',
+              description: 'File path (absolute, or relative to the working directory).',
+            },
+            offset: {
+              type: 'number',
+              description: 'Line number to start from (0-based, default 0).',
+            },
           },
           required: ['path'],
         },
@@ -279,7 +297,10 @@ export function buildTools(db: DatabaseDriver, opts: BuildToolsOptions = {}): Bu
           properties: {
             path: { type: 'string', description: 'File path to write.' },
             content: { type: 'string', description: 'Full file content.' },
-            overwrite: { type: 'string', description: 'Set "true" to overwrite without confirmation.' },
+            overwrite: {
+              type: 'string',
+              description: 'Set "true" to overwrite without confirmation.',
+            },
           },
           required: ['path', 'content'],
         },
@@ -306,19 +327,25 @@ export function buildTools(db: DatabaseDriver, opts: BuildToolsOptions = {}): Bu
         parameters: {
           type: 'object',
           description: 'Arguments for list_dir.',
-          properties: { path: { type: 'string', description: 'Directory path (default: working directory).' } },
+          properties: {
+            path: { type: 'string', description: 'Directory path (default: working directory).' },
+          },
           required: [],
         },
       },
       {
         name: 'glob_files',
-        description: 'Find files by glob pattern, e.g. **/*.sql or migrations/*.ts. node_modules is skipped.',
+        description:
+          'Find files by glob pattern, e.g. **/*.sql or migrations/*.ts. node_modules is skipped.',
         parameters: {
           type: 'object',
           description: 'Arguments for glob_files.',
           properties: {
             pattern: { type: 'string', description: 'Glob pattern.' },
-            cwd: { type: 'string', description: 'Directory to search in (default: working directory).' },
+            cwd: {
+              type: 'string',
+              description: 'Directory to search in (default: working directory).',
+            },
           },
           required: ['pattern'],
         },
@@ -333,7 +360,11 @@ export function buildTools(db: DatabaseDriver, opts: BuildToolsOptions = {}): Bu
           properties: {
             pattern: { type: 'string', description: 'Regex pattern.' },
             cwd: { type: 'string', description: 'Directory to search in.' },
-            ext: { type: 'string', description: 'Comma-separated file extensions to scan (default: .sql,.txt,.md,.csv,.json,.ts,.js,.py,.mjs).' },
+            ext: {
+              type: 'string',
+              description:
+                'Comma-separated file extensions to scan (default: .sql,.txt,.md,.csv,.json,.ts,.js,.py,.mjs).',
+            },
           },
           required: ['pattern'],
         },
@@ -365,7 +396,10 @@ export function buildTools(db: DatabaseDriver, opts: BuildToolsOptions = {}): Bu
         description: 'Arguments for bash.',
         properties: {
           command: { type: 'string', description: 'The shell command to run.' },
-          cwd: { type: 'string', description: 'Working directory for the command (default: current directory).' },
+          cwd: {
+            type: 'string',
+            description: 'Working directory for the command (default: current directory).',
+          },
           timeoutMs: { type: 'number', description: 'Timeout in ms (default 30000, max 120000).' },
         },
         required: ['command'],

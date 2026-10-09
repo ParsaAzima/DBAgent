@@ -78,10 +78,7 @@ export function resolveConfig(opts: {
 
   const llm: LLMProviderConfig = {
     id: provider,
-    model:
-      opts.modelFlag ??
-      process.env.DBAGENT_MODEL ??
-      DEFAULT_MODELS[provider],
+    model: opts.modelFlag ?? process.env.DBAGENT_MODEL ?? DEFAULT_MODELS[provider],
     temperature: num(process.env.DBAGENT_TEMPERATURE, 0.1),
     maxOutputTokens: num(process.env.DBAGENT_MAX_OUTPUT_TOKENS, 2048),
     apiKey: apiKeyFor(provider),

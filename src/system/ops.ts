@@ -55,9 +55,7 @@ export async function collectStats(db: DatabaseDriver): Promise<DbStats> {
   try {
     if (db.dialect === 'postgres') {
       const pool = (db as any).pool;
-      const { rows } = await pool.query(
-        `SELECT pg_database_size(current_database()) AS size`,
-      );
+      const { rows } = await pool.query(`SELECT pg_database_size(current_database()) AS size`);
       totalSizeBytes = Number(rows[0]?.size ?? 0);
       const perTable = await pool.query(
         `SELECT c.relname AS name, pg_total_relation_size(c.oid) AS size,
@@ -156,13 +154,14 @@ export async function collectSystemInfo(db: DatabaseDriver): Promise<SystemInfo>
   if (db.dialect === 'postgres') {
     const pool = (db as any).pool;
     const v = await pool.query('SELECT version() AS v');
-    info.version = String(v.rows[0]?.v ?? '').split(' ').slice(0, 2).join(' ');
+    info.version = String(v.rows[0]?.v ?? '')
+      .split(' ')
+      .slice(0, 2)
+      .join(' ');
     const up = await pool.query(
       'SELECT pg_postmaster_start_time() AS start, (SELECT count(*) FROM pg_stat_activity) AS conns',
     );
-    info.uptimeSeconds = Math.floor(
-      (Date.now() - new Date(up.rows[0]?.start).getTime()) / 1000,
-    );
+    info.uptimeSeconds = Math.floor((Date.now() - new Date(up.rows[0]?.start).getTime()) / 1000);
     info.activeConnections = Number(up.rows[0]?.conns ?? 0);
     const s = await pool.query(
       `SELECT name, setting FROM pg_settings
@@ -208,9 +207,9 @@ export async function collectSystemInfo(db: DatabaseDriver): Promise<SystemInfo>
           Math.floor((Date.now() - new Date(start).getTime()) / 1000),
         );
       }
-      const conns = await pool.request().query(
-        `SELECT COUNT(*) AS [conns] FROM sys.dm_exec_sessions WHERE is_user_process = 1`,
-      );
+      const conns = await pool
+        .request()
+        .query(`SELECT COUNT(*) AS [conns] FROM sys.dm_exec_sessions WHERE is_user_process = 1`);
       info.activeConnections = Number(conns.recordset?.[0]?.conns ?? 0);
       const st = await pool.request().query(
         `SELECT name, CAST(value_in_use AS nvarchar(128)) AS [value]
@@ -308,9 +307,7 @@ export async function importCsv(
   // Optionally create the table from header types (all TEXT unless numeric).
   if (opts.createTable) {
     const colType = db.dialect === 'sqlserver' ? 'NVARCHAR(MAX)' : 'TEXT';
-    const colDefs = headers
-      .map((h) => `${quoteIdent(db.dialect, h)} ${colType}`)
-      .join(', ');
+    const colDefs = headers.map((h) => `${quoteIdent(db.dialect, h)} ${colType}`).join(', ');
     await db.execute(`CREATE TABLE ${quoteIdent(db.dialect, table)} (${colDefs})`);
   }
 
@@ -354,10 +351,7 @@ export interface BackupResult {
   method: string;
 }
 
-export async function backup(
-  db: DatabaseDriver,
-  outPath: string,
-): Promise<BackupResult> {
+export async function backup(db: DatabaseDriver, outPath: string): Promise<BackupResult> {
   await mkdir(path.dirname(path.resolve(outPath)), { recursive: true });
 
   if (db.dialect === 'sqlite') {
@@ -400,9 +394,7 @@ export async function backup(
       file: bytes > 0 ? outPath : abs,
       bytes,
       method:
-        bytes > 0
-          ? 'BACKUP DATABASE'
-          : 'BACKUP DATABASE (file created on the SQL Server host)',
+        bytes > 0 ? 'BACKUP DATABASE' : 'BACKUP DATABASE (file created on the SQL Server host)',
     };
   }
   return runDumpTool('mysqldump', [], db, outPath, 'mysqldump');
@@ -449,7 +441,9 @@ function runDumpTool(
     child.stdout.on('data', (c) => chunks.push(c));
     child.stderr.on('data', (c) => (stderr += c));
     child.on('error', (err) =>
-      reject(new Error(`${tool} not found in PATH — install the ${spec} client tools. ${err.message}`)),
+      reject(
+        new Error(`${tool} not found in PATH — install the ${spec} client tools. ${err.message}`),
+      ),
     );
     child.on('close', async (code) => {
       if (code !== 0) {

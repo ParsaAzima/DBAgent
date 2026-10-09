@@ -15,6 +15,10 @@
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/cli.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "start": "node dist/cli.js",
     "demo:seed": "node scripts/make-demo-sqlite.mjs",
     "test:smoke": "npm run build && node scripts/smoke-agent.mjs",
@@ -59,11 +63,17 @@
     "better-sqlite3": "^11.3.0"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/mssql": "^12.3.0",
     "@types/node": "^22.7.0",
     "@types/pg": "^8.11.0",
+    "eslint": "^10.12.0",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.13.0",
+    "prettier": "^3.9.9",
     "tsx": "^4.19.0",
-    "typescript": "^5.6.0"
+    "typescript": "^5.6.0",
+    "typescript-eslint": "^8.71.1"
   },
   "allowScripts": {
     "better-sqlite3@11.10.0": true,

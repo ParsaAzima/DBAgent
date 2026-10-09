@@ -15,7 +15,13 @@ import { loadDotEnv, resolveConfig, PROVIDER_IDS } from './core/config.js';
 import { assertApiKeyPresent, createLLMAdapter } from './llm/factory.js';
 import { createDatabaseDriver } from './db/factory.js';
 import { randomUUID } from 'node:crypto';
-import { deleteSession, listSessions, loadSession, saveSession, type SessionFile } from './session/store.js';
+import {
+  deleteSession,
+  listSessions,
+  loadSession,
+  saveSession,
+  type SessionFile,
+} from './session/store.js';
 
 function redactDbUrl(url: string): string {
   return url.replace(/\/\/([^:/@]+):([^@]+)@/, '//$1:***@');
@@ -44,11 +50,18 @@ program
 program
   .command('chat')
   .description('Interactive chat with your database (TUI; --plain for simple REPL).')
-  .option('--db <url>', 'Database URL (sqlite://./app.db, postgres://..., mysql://..., sqlserver://...)')
+  .option(
+    '--db <url>',
+    'Database URL (sqlite://./app.db, postgres://..., mysql://..., sqlserver://...)',
+  )
   .option('--provider <id>', `LLM provider (${PROVIDER_IDS.join('|')})`)
   .option('--model <name>', 'Model name override')
   .option('--allow-writes', 'Enable INSERT/UPDATE/DELETE (read-only by default)', false)
-  .option('--allow-system', 'Enable system tools (stats/export/import/backup/discover/files)', false)
+  .option(
+    '--allow-system',
+    'Enable system tools (stats/export/import/backup/discover/files)',
+    false,
+  )
   .option('--allow-shell', 'Enable the bash tool (runs shell commands) — use with care', false)
   .option('--max-rows <n>', 'Hard LIMIT for read queries', parseInt)
   .option('--resume [id]', 'Resume a saved session (latest if no id given)')
@@ -115,7 +128,8 @@ program
       (agent as any).history.push(msg);
     }
 
-    let tuiItems: unknown[] | undefined = history.length > 0 ? loadSession(sessionId)?.tuiItems : undefined;
+    let tuiItems: unknown[] | undefined =
+      history.length > 0 ? loadSession(sessionId)?.tuiItems : undefined;
     const persist = (transcript?: unknown[]): void => {
       if (transcript) tuiItems = transcript;
       const existing = loadSession(sessionId);
@@ -134,7 +148,9 @@ program
 
     const useTui = !opts.plain && process.stdin.isTTY;
     if (!opts.plain && !process.stdin.isTTY) {
-      console.log('ℹ stdin is not a TTY — falling back to plain REPL (use --plain to silence this).');
+      console.log(
+        'ℹ stdin is not a TTY — falling back to plain REPL (use --plain to silence this).',
+      );
     }
     if (useTui) {
       // ── Modern TUI (streaming, markdown, tool lines) ──
@@ -157,7 +173,9 @@ program
     console.log(`DBAgent v0.1.0 (plain REPL)`);
     console.log(`  DB      : ${db.describeTarget()}  (${redactDbUrl(cfg.dbUrl)})`);
     console.log(`  Model   : ${cfg.llm.id}/${cfg.llm.model}`);
-    console.log(`  Mode    : ${cfg.allowWrites ? 'READ+WRITE' : 'READ-ONLY'} (max ${cfg.maxRows ?? 100} rows)`);
+    console.log(
+      `  Mode    : ${cfg.allowWrites ? 'READ+WRITE' : 'READ-ONLY'} (max ${cfg.maxRows ?? 100} rows)`,
+    );
     console.log(`  Session : ${sessionId}`);
     console.log(`Commands: /exit  /reset  /save  /schema  /help\n`);
 
@@ -190,7 +208,9 @@ program
               .map(
                 (t) =>
                   `- ${t.name} (${t.kind}, ~${t.rowCountEstimate ?? '?'} rows)\n` +
-                  t.columns.map((c) => `    ${c.name}: ${c.dataType}${c.isPrimaryKey ? ' [PK]' : ''}`).join('\n'),
+                  t.columns
+                    .map((c) => `    ${c.name}: ${c.dataType}${c.isPrimaryKey ? ' [PK]' : ''}`)
+                    .join('\n'),
               )
               .join('\n') || '(no tables)',
           );
@@ -253,14 +273,18 @@ program
     }
     try {
       assertApiKeyPresent(cfg.llm);
-      const result = await withDb(cfg.dbUrl, { allowWrites: cfg.allowWrites, maxRows: cfg.maxRows }, async (db) => {
-        const llm = createLLMAdapter(cfg.llm);
-        const agent = new Agent(llm, db, cfg.llm, cfg.maxRounds, {
-          allowSystem: cfg.allowSystem,
-          allowWrites: cfg.allowWrites,
-        });
-        return agent.runTurn(question, { timeoutMs: cfg.timeoutMs });
-      });
+      const result = await withDb(
+        cfg.dbUrl,
+        { allowWrites: cfg.allowWrites, maxRows: cfg.maxRows },
+        async (db) => {
+          const llm = createLLMAdapter(cfg.llm);
+          const agent = new Agent(llm, db, cfg.llm, cfg.maxRounds, {
+            allowSystem: cfg.allowSystem,
+            allowWrites: cfg.allowWrites,
+          });
+          return agent.runTurn(question, { timeoutMs: cfg.timeoutMs });
+        },
+      );
       console.log(result.text);
     } catch (err) {
       console.error(`✗ ${(err as Error).message}`);
@@ -278,14 +302,23 @@ program
     console.log('Servers:');
     if (d.servers.length === 0) console.log('  (none running on default ports)');
     for (const s of d.servers) {
-      console.log(`  - ${s.kind} at ${s.host}:${s.port}${s.hasDumpTool ? '' : ' (no dump tool in PATH)'}`);
+      console.log(
+        `  - ${s.kind} at ${s.host}:${s.port}${s.hasDumpTool ? '' : ' (no dump tool in PATH)'}`,
+      );
     }
     console.log('SQLite files (cwd):');
     if (d.sqliteFiles.length === 0) console.log('  (none)');
     for (const f of d.sqliteFiles) {
       console.log(`  - ${f.path} (${(f.sizeBytes / 1024).toFixed(1)} KB)`);
     }
-    console.log(`Client tools: ${Object.entries(d.tools).filter(([, v]) => v).map(([k]) => k).join(', ') || 'none'}`);
+    console.log(
+      `Client tools: ${
+        Object.entries(d.tools)
+          .filter(([, v]) => v)
+          .map(([k]) => k)
+          .join(', ') || 'none'
+      }`,
+    );
   });
 
 program
@@ -304,7 +337,9 @@ program
       const tables = await db.listTables();
       console.log(`  Tables/views: ${tables.length}`);
       for (const t of tables) {
-        console.log(`    - ${t.name} (${t.kind}, ~${t.rowCountEstimate ?? '?'} rows, ${t.columns.length} cols)`);
+        console.log(
+          `    - ${t.name} (${t.kind}, ~${t.rowCountEstimate ?? '?'} rows, ${t.columns.length} cols)`,
+        );
       }
     }).catch((err) => {
       console.error(`✗ ${(err as Error).message}`);
@@ -313,15 +348,13 @@ program
   });
 
 const sessionsCmd = program.command('sessions').description('Manage saved chat sessions.');
-sessionsCmd
-  .command('list')
-  .action(() => {
-    const all = listSessions();
-    if (all.length === 0) return console.log('(no saved sessions)');
-    for (const s of all) {
-      console.log(`${s.id}  ${s.updatedAt}  ${s.provider}  ${redactDbUrl(s.dbUrl)}`);
-    }
-  });
+sessionsCmd.command('list').action(() => {
+  const all = listSessions();
+  if (all.length === 0) return console.log('(no saved sessions)');
+  for (const s of all) {
+    console.log(`${s.id}  ${s.updatedAt}  ${s.provider}  ${redactDbUrl(s.dbUrl)}`);
+  }
+});
 sessionsCmd
   .command('rm')
   .argument('<id>')

@@ -26,11 +26,7 @@ export function TableView({
   const widths = useMemo(
     () =>
       result.columns.map((c, i) =>
-        Math.max(
-          c.length,
-          ...result.rows.slice(0, 200).map((r) => cellText(r[i]).length),
-          3,
-        ),
+        Math.max(c.length, ...result.rows.slice(0, 200).map((r) => cellText(r[i]).length), 3),
       ),
     [result],
   );
@@ -69,11 +65,7 @@ export function TableView({
   const line = (l: string, m: string, r: string) =>
     l + widthSlice.map((w) => '─'.repeat(w + 2)).join(m) + r;
   const drawRow = (cells: (string | null)[], highlight = false) =>
-    '│' +
-    cells
-      .map((c, i) => ` ${String(c ?? '').padEnd(widthSlice[i] ?? 3)} `)
-      .join('│') +
-    '│';
+    '│' + cells.map((c, i) => ` ${String(c ?? '').padEnd(widthSlice[i] ?? 3)} `).join('│') + '│';
 
   return (
     <Box flexDirection="column" borderStyle="double" borderColor="cyan" paddingX={1}>
@@ -83,7 +75,8 @@ export function TableView({
           {result.sql ? <Text dimColor> — {result.sql.slice(0, 60)}</Text> : null}
         </Text>
         <Text dimColor>
-          {result.rowCount} rows{result.durationMs !== undefined ? ` · ${fmtDuration(result.durationMs)}` : ''}
+          {result.rowCount} rows
+          {result.durationMs !== undefined ? ` · ${fmtDuration(result.durationMs)}` : ''}
         </Text>
       </Box>
       <Text color="cyan">{line('┌', '┬', '┐')}</Text>
@@ -92,15 +85,23 @@ export function TableView({
       </Text>
       <Text color="cyan">{line('├', '┼', '┤')}</Text>
       {rowSlice.map((r, i) => (
-        <Text key={i} color={row === Math.min(row, Math.max(0, result.rows.length - VISIBLE_ROWS)) + i ? 'white' : undefined}>
+        <Text
+          key={i}
+          color={
+            row === Math.min(row, Math.max(0, result.rows.length - VISIBLE_ROWS)) + i
+              ? 'white'
+              : undefined
+          }
+        >
           {drawRow(r.map(cellText))}
         </Text>
       ))}
       <Text color="cyan">{line('└', '┴', '┘')}</Text>
       <Text dimColor>
-        ↑↓/jk rows · ←→/hl cols · PgUp/PgDn page · g/G ends · showing rows {Math.min(row, maxRow()) + 1}-
-        {Math.min(row + VISIBLE_ROWS, result.rows.length)} of {result.rows.length}, cols {col + 1}-
-        {Math.min(col + VISIBLE_COLS, result.columns.length)} of {result.columns.length} · q close
+        ↑↓/jk rows · ←→/hl cols · PgUp/PgDn page · g/G ends · showing rows{' '}
+        {Math.min(row, maxRow()) + 1}-{Math.min(row + VISIBLE_ROWS, result.rows.length)} of{' '}
+        {result.rows.length}, cols {col + 1}-{Math.min(col + VISIBLE_COLS, result.columns.length)}{' '}
+        of {result.columns.length} · q close
       </Text>
     </Box>
   );

@@ -77,7 +77,9 @@ const env = {
 /** Run a CLI command asynchronously with a hard timeout. */
 function run(args, { timeoutMs = 45_000, envOverride = {} } = {}) {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, ['dist/cli.js', ...args], { env: { ...env, ...envOverride } });
+    const child = spawn(process.execPath, ['dist/cli.js', ...args], {
+      env: { ...env, ...envOverride },
+    });
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (c) => (stdout += c));
@@ -110,8 +112,14 @@ const ask = await run([
 ]);
 check(
   'e2e ask (HTTP → adapter → agent → sqlite)',
-  ask.stdout.includes('E2E-OK: 4 tables') && ask.stdout.includes('saw tools: true') && ask.stdout.includes('first table: customers'),
-  JSON.stringify({ code: ask.code, stdout: ask.stdout.slice(0, 300), stderr: ask.stderr.slice(0, 300) }),
+  ask.stdout.includes('E2E-OK: 4 tables') &&
+    ask.stdout.includes('saw tools: true') &&
+    ask.stdout.includes('first table: customers'),
+  JSON.stringify({
+    code: ask.code,
+    stdout: ask.stdout.slice(0, 300),
+    stderr: ask.stderr.slice(0, 300),
+  }),
 );
 
 // ── ask via OpenRouter preset (same mock, different URL/auth shape) ────────
@@ -143,12 +151,21 @@ check(
     openrouterSeen.auth &&
     openrouterSeen.referer &&
     openrouterSeen.title,
-  JSON.stringify({ code: orAsk.code, seen: openrouterSeen, stdout: orAsk.stdout.slice(0, 200), stderr: orAsk.stderr.slice(0, 200) }),
+  JSON.stringify({
+    code: orAsk.code,
+    seen: openrouterSeen,
+    stdout: orAsk.stdout.slice(0, 200),
+    stderr: orAsk.stderr.slice(0, 200),
+  }),
 );
 
 // ── health (DB only, no LLM) ────────────────────────────────────────────────
 const health = await run(['health', '--db', 'sqlite://./demo.db']);
-check('e2e health', health.code === 0 && health.stdout.includes('Tables/views: 4'), health.stderr.slice(0, 200));
+check(
+  'e2e health',
+  health.code === 0 && health.stdout.includes('Tables/views: 4'),
+  health.stderr.slice(0, 200),
+);
 
 // ── ask without API key → clean error ───────────────────────────────────────
 const noKey = await run(['ask', 'x', '--db', 'sqlite://./demo.db', '--provider', 'openai'], {

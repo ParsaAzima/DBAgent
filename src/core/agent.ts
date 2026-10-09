@@ -32,7 +32,11 @@ export interface AgentTurnOptions {
 }
 
 export type AgentStep =
-  | { kind: 'llm_response'; text?: string; toolCalls: { id: string; name: string; args: Record<string, unknown> }[] }
+  | {
+      kind: 'llm_response';
+      text?: string;
+      toolCalls: { id: string; name: string; args: Record<string, unknown> }[];
+    }
   | { kind: 'tool_result'; toolCallId: string; name: string; ok: boolean; summary: string };
 
 export interface AgentTurnResult {
@@ -77,9 +81,7 @@ export class Agent {
   /** Conversation transcript so far (tool payloads trimmed for size). */
   getHistory(): AgentMessage[] {
     return this.history.map((m) =>
-      m.role === 'tool'
-        ? { ...m, toolResult: summarizeToolResult(m.toolResult) }
-        : m,
+      m.role === 'tool' ? { ...m, toolResult: summarizeToolResult(m.toolResult) } : m,
     );
   }
 
@@ -143,7 +145,9 @@ export class Agent {
           role: 'tool',
           toolCallId: call.id,
           name: call.name,
-          toolResult: step.ok ? { ok: true, result: safeParse(step.summary) } : { ok: false, error: step.summary },
+          toolResult: step.ok
+            ? { ok: true, result: safeParse(step.summary) }
+            : { ok: false, error: step.summary },
         });
       }
     }
@@ -177,14 +181,21 @@ export class Agent {
 
       const llmStream = this.llm.stream;
       const response: LLMResponse = llmStream
-        ? await llmStream.call(this.llm, this.history, this.tools, system, (ev: StreamEvent) => {
-            if (ev.type === 'text_delta') {
-              finalText = finalText + ev.text;
-              options.onEvent?.({ kind: 'text_delta', text: ev.text });
-            } else if (ev.type === 'tool_call') {
-              options.onEvent?.({ kind: 'tool_start', id: ev.id, name: ev.name, args: ev.args });
-            }
-          }, { signal: options.signal })
+        ? await llmStream.call(
+            this.llm,
+            this.history,
+            this.tools,
+            system,
+            (ev: StreamEvent) => {
+              if (ev.type === 'text_delta') {
+                finalText = finalText + ev.text;
+                options.onEvent?.({ kind: 'text_delta', text: ev.text });
+              } else if (ev.type === 'tool_call') {
+                options.onEvent?.({ kind: 'tool_start', id: ev.id, name: ev.name, args: ev.args });
+              }
+            },
+            { signal: options.signal },
+          )
         : await this.llm.complete(this.history, this.tools, system);
 
       // Surface token usage to the UI (cost/status line).
@@ -230,13 +241,21 @@ export class Agent {
           ok: step.ok,
           durationMs,
           preview: step.summary.slice(0, 200),
-          data: extractToolData(call.name, call.args, step.ok ? step.summary : undefined, step.ok, durationMs),
+          data: extractToolData(
+            call.name,
+            call.args,
+            step.ok ? step.summary : undefined,
+            step.ok,
+            durationMs,
+          ),
         });
         this.history.push({
           role: 'tool',
           toolCallId: call.id,
           name: call.name,
-          toolResult: step.ok ? { ok: true, result: safeParse(step.summary) } : { ok: false, error: step.summary },
+          toolResult: step.ok
+            ? { ok: true, result: safeParse(step.summary) }
+            : { ok: false, error: step.summary },
         });
       }
 
@@ -310,7 +329,12 @@ function extractToolData(
       columns: columns.map(String),
       rows,
       rowCount: Number(parsed.rowCount ?? rows.length),
-      truncated: rows.length > 0 && rows.length >= Number(parsed.rowCount ?? rows.length) && toolName !== 'query' ? true : undefined,
+      truncated:
+        rows.length > 0 &&
+        rows.length >= Number(parsed.rowCount ?? rows.length) &&
+        toolName !== 'query'
+          ? true
+          : undefined,
       sql: typeof args.sql === 'string' ? args.sql : undefined,
       table: typeof args.table === 'string' ? args.table : undefined,
       durationMs,
@@ -325,7 +349,10 @@ function runWithTimeout<T>(promise: Promise<T>, ms?: number): Promise<T> {
   return Promise.race([
     promise,
     new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error(`Tool execution timed out after ${Math.round(ms / 1000)}s`)), ms),
+      setTimeout(
+        () => reject(new Error(`Tool execution timed out after ${Math.round(ms / 1000)}s`)),
+        ms,
+      ),
     ),
   ]);
 }

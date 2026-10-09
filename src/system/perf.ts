@@ -14,12 +14,7 @@
  */
 
 import type { DatabaseDialect, DatabaseDriver, QueryResult } from '../core/types.js';
-import {
-  classifyStatement,
-  enforceLimit,
-  normalizeSql,
-  singleStatement,
-} from '../db/guard.js';
+import { classifyStatement, enforceLimit, normalizeSql, singleStatement } from '../db/guard.js';
 
 /* ─────────────────── report ─────────────────── */
 
@@ -75,8 +70,7 @@ export function performanceQueries(dialect: DatabaseDialect): PerfQuerySpec[] {
       return [
         {
           name: 'disabled_indexes',
-          note:
-            'A disabled index is not maintained and never used — "broken": re-enable it (ALTER INDEX ... REBUILD) or drop it after confirming the workload.',
+          note: 'A disabled index is not maintained and never used — "broken": re-enable it (ALTER INDEX ... REBUILD) or drop it after confirming the workload.',
           sql: `SELECT TOP 20 OBJECT_NAME(object_id) AS [table_name], name AS [index_name], type_desc AS [type]
                 FROM sys.indexes
                 WHERE is_disabled = 1 AND is_hypothetical = 0
@@ -84,8 +78,7 @@ export function performanceQueries(dialect: DatabaseDialect): PerfQuerySpec[] {
         },
         {
           name: 'missing_indexes',
-          note:
-            'Estimated impact from the query optimizer. score = avg_total_user_cost × avg_user_impact. Validate the top candidates with explain_query and real workload before CREATE INDEX — indexes slow writes and take space.',
+          note: 'Estimated impact from the query optimizer. score = avg_total_user_cost × avg_user_impact. Validate the top candidates with explain_query and real workload before CREATE INDEX — indexes slow writes and take space.',
           sql: `SELECT TOP 10 mid.statement AS [table],
                        mid.equality_columns, mid.inequality_columns, mid.included_columns,
                        migs.user_seeks, migs.user_scans,
@@ -98,8 +91,7 @@ export function performanceQueries(dialect: DatabaseDialect): PerfQuerySpec[] {
         },
         {
           name: 'unused_indexes',
-          note:
-            'Read 0 times but written (or no stats row) — candidates for removal. Confirm the stats window (resets on restart), and that the index is not unique / not supporting a FK or a rare monthly query.',
+          note: 'Read 0 times but written (or no stats row) — candidates for removal. Confirm the stats window (resets on restart), and that the index is not unique / not supporting a FK or a rare monthly query.',
           sql: `SELECT TOP 15 OBJECT_NAME(i.object_id) AS [table_name], i.name AS [index_name],
                        ISNULL(ius.user_seeks, 0) AS [seeks], ISNULL(ius.user_scans, 0) AS [scans],
                        ISNULL(ius.user_lookups, 0) AS [lookups], ISNULL(ius.user_updates, 0) AS [updates],
@@ -114,8 +106,7 @@ export function performanceQueries(dialect: DatabaseDialect): PerfQuerySpec[] {
         },
         {
           name: 'duplicate_indexes',
-          note:
-            'Indexes with identical key columns — usually one is redundant. Check included columns, uniqueness and WHERE predicates before dropping either.',
+          note: 'Indexes with identical key columns — usually one is redundant. Check included columns, uniqueness and WHERE predicates before dropping either.',
           sql: `WITH idx AS (
                   SELECT i.object_id, i.index_id, i.name AS [index_name], i.is_unique,
                     CAST((SELECT ',' + c.name
@@ -138,8 +129,7 @@ export function performanceQueries(dialect: DatabaseDialect): PerfQuerySpec[] {
         {
           name: 'fragmentation',
           deepOnly: true,
-          note:
-            'LIMITED-mode scan (cheap but reads page metadata). >30% on large indexes → REBUILD; 10-30% → REORGANIZE. Needs admin rights; rebuilding requires write mode and downtime planning.',
+          note: 'LIMITED-mode scan (cheap but reads page metadata). >30% on large indexes → REBUILD; 10-30% → REORGANIZE. Needs admin rights; rebuilding requires write mode and downtime planning.',
           sql: `SELECT TOP 12 OBJECT_NAME(ips.object_id) AS [table_name], i.name AS [index_name],
                        CONVERT(decimal(5,2), ips.avg_fragmentation_in_percent) AS [frag_pct],
                        ips.page_count
@@ -151,8 +141,7 @@ export function performanceQueries(dialect: DatabaseDialect): PerfQuerySpec[] {
         },
         {
           name: 'wait_stats',
-          note:
-            'Cumulative wait time by type (since server start) — identifies the bottleneck class: PAGEIOLATCH = I/O, CXPACKET/PARAALLEL = CPU parallelism, LCK_M = locking, PAGELATCH = tempdb/latch contention.',
+          note: 'Cumulative wait time by type (since server start) — identifies the bottleneck class: PAGEIOLATCH = I/O, CXPACKET/PARAALLEL = CPU parallelism, LCK_M = locking, PAGELATCH = tempdb/latch contention.',
           sql: `SELECT TOP 10 wait_type, waiting_tasks_count,
                        wait_time_ms, CONVERT(decimal(12,1), wait_time_ms / 1000.0) AS [wait_time_s],
                        CONVERT(decimal(12,1), wait_time_ms / NULLIF(waiting_tasks_count, 0) / 1000.0) AS [avg_wait_s]
@@ -169,8 +158,7 @@ export function performanceQueries(dialect: DatabaseDialect): PerfQuerySpec[] {
         },
         {
           name: 'expensive_queries',
-          note:
-            'Queries with the most cumulative logical reads — prime candidates for indexing or rewriting. Run explain_query on the exact SQL to see the plan.',
+          note: 'Queries with the most cumulative logical reads — prime candidates for indexing or rewriting. Run explain_query on the exact SQL to see the plan.',
           sql: `SELECT TOP 10 CONVERT(bigint, qs.total_logical_reads) AS [total_reads],
                        qs.total_logical_reads / NULLIF(qs.execution_count, 0) AS [avg_reads],
                        qs.execution_count,
@@ -183,8 +171,7 @@ export function performanceQueries(dialect: DatabaseDialect): PerfQuerySpec[] {
         },
         {
           name: 'blocking',
-          note:
-            'Sessions currently blocked by another session — fix blocking first; it multiplies into application timeouts.',
+          note: 'Sessions currently blocked by another session — fix blocking first; it multiplies into application timeouts.',
           sql: `SELECT TOP 8 r.session_id AS [session_id], r.blocking_session_id AS [blocked_by],
                        r.wait_type, r.wait_time AS [wait_time_ms], r.status, LEFT(t.text, 200) AS [query]
                 FROM sys.dm_exec_requests r
@@ -194,8 +181,7 @@ export function performanceQueries(dialect: DatabaseDialect): PerfQuerySpec[] {
         },
         {
           name: 'buffer_cache',
-          note:
-            'Buffer cache hit ratio should be ~99%. Much lower → the working set does not fit in memory or reads bypass indexes (large scans).',
+          note: 'Buffer cache hit ratio should be ~99%. Much lower → the working set does not fit in memory or reads bypass indexes (large scans).',
           sql: `SELECT
                   MAX(CASE WHEN counter_name = 'Buffer cache hit ratio' THEN cntr_value END) * 100.0 /
                   NULLIF(MAX(CASE WHEN counter_name = 'Buffer cache hit ratio base' THEN cntr_value END), 0)
@@ -210,8 +196,7 @@ export function performanceQueries(dialect: DatabaseDialect): PerfQuerySpec[] {
       return [
         {
           name: 'invalid_indexes',
-          note:
-            'A broken/invalid index (usually an interrupted CREATE INDEX CONCURRENTLY) is invisible to the planner — queries scan the table instead. REINDEX or DROP it.',
+          note: 'A broken/invalid index (usually an interrupted CREATE INDEX CONCURRENTLY) is invisible to the planner — queries scan the table instead. REINDEX or DROP it.',
           sql: `SELECT c.relname AS "table_name", i.indexrelid::regclass::text AS "index_name",
                        i.indisvalid AS "valid", i.indisready AS "ready"
                 FROM pg_index i
@@ -222,8 +207,7 @@ export function performanceQueries(dialect: DatabaseDialect): PerfQuerySpec[] {
         },
         {
           name: 'unused_indexes',
-          note:
-            'Never queried since the stats reset — candidates for removal. Primary keys, unique constraints and FK-supporting indexes are excluded.',
+          note: 'Never queried since the stats reset — candidates for removal. Primary keys, unique constraints and FK-supporting indexes are excluded.',
           sql: `SELECT s.schemaname, s.relname AS "table_name", s.indexrelname AS "index_name",
                        pg_size_pretty(pg_relation_size(s.indexrelid)) AS "size", s.idx_scan AS "scans"
                 FROM pg_stat_user_indexes s
@@ -235,8 +219,7 @@ export function performanceQueries(dialect: DatabaseDialect): PerfQuerySpec[] {
         },
         {
           name: 'duplicate_indexes',
-          note:
-            'Exact same key columns and uniqueness — usually one is redundant. Compare included columns (indnkeyatts/INCLUDE) and WHERE predicates before dropping.',
+          note: 'Exact same key columns and uniqueness — usually one is redundant. Compare included columns (indnkeyatts/INCLUDE) and WHERE predicates before dropping.',
           sql: `SELECT pg_class.relname AS "table_name",
                        a.indexrelid::regclass::text AS "index_a",
                        b.indexrelid::regclass::text AS "index_b",
@@ -255,8 +238,7 @@ export function performanceQueries(dialect: DatabaseDialect): PerfQuerySpec[] {
         },
         {
           name: 'seq_scan_hotspots',
-          note:
-            'Heavy sequential scans = missing index candidates. Compare seq_scan vs idx_scan and row counts; confirm with explain_query before creating an index.',
+          note: 'Heavy sequential scans = missing index candidates. Compare seq_scan vs idx_scan and row counts; confirm with explain_query before creating an index.',
           sql: `SELECT relname AS "table_name", seq_scan, idx_scan, n_live_tup AS "row_count",
                        seq_tup_read AS "rows_read_by_seq_scan",
                        n_tup_ins + n_tup_upd + n_tup_del AS "writes"
@@ -267,8 +249,7 @@ export function performanceQueries(dialect: DatabaseDialect): PerfQuerySpec[] {
         },
         {
           name: 'dead_tuples',
-          note:
-            'High dead tuples → autovacuum lag and table bloat: scans read invisible rows. Tune autovacuum or run VACUUM (needs write/admin).',
+          note: 'High dead tuples → autovacuum lag and table bloat: scans read invisible rows. Tune autovacuum or run VACUUM (needs write/admin).',
           sql: `SELECT relname AS "table_name", n_live_tup AS "row_count", n_dead_tup AS "dead_rows",
                        ROUND(100.0 * n_dead_tup / NULLIF(n_live_tup + n_dead_tup, 0), 1) AS "dead_pct",
                        last_autovacuum, last_autoanalyze
@@ -279,8 +260,7 @@ export function performanceQueries(dialect: DatabaseDialect): PerfQuerySpec[] {
         },
         {
           name: 'cache_hit',
-          note:
-            'Heap + index block cache hit ratio. Should be close to 99%; low values → memory pressure or unindexed scans.',
+          note: 'Heap + index block cache hit ratio. Should be close to 99%; low values → memory pressure or unindexed scans.',
           sql: `SELECT ROUND(100.0 * SUM(hit) / NULLIF(SUM(hit + read), 0), 2) AS "cache_hit_pct",
                        SUM(read) AS "disk_reads"
                 FROM (
@@ -291,8 +271,7 @@ export function performanceQueries(dialect: DatabaseDialect): PerfQuerySpec[] {
         },
         {
           name: 'long_running',
-          note:
-            'Active queries with their duration and wait events — a stuck/long query or lock wait is an immediate bottleneck.',
+          note: 'Active queries with their duration and wait events — a stuck/long query or lock wait is an immediate bottleneck.',
           sql: `SELECT pid, now() - query_start AS "duration", state,
                        wait_event_type, wait_event, LEFT(query, 200) AS "query"
                 FROM pg_stat_activity
@@ -303,8 +282,7 @@ export function performanceQueries(dialect: DatabaseDialect): PerfQuerySpec[] {
         },
         {
           name: 'top_statements',
-          note:
-            'Most expensive statements (pg_stat_statements extension). If this section fails, install/enable it: CREATE EXTENSION pg_stat_statements.',
+          note: 'Most expensive statements (pg_stat_statements extension). If this section fails, install/enable it: CREATE EXTENSION pg_stat_statements.',
           sql: `SELECT LEFT(query, 200) AS "query", calls,
                        ROUND(total_exec_time::numeric, 1) AS "exec_time_ms",
                        ROUND(100.0 * shared_blks_hit / NULLIF(shared_blks_hit + shared_blks_read, 0), 1) AS "hit_pct"
@@ -323,8 +301,7 @@ export function performanceQueries(dialect: DatabaseDialect): PerfQuerySpec[] {
       return [
         {
           name: 'unused_indexes',
-          note:
-            'Never used by any statement since stats reset (sys schema) — removal candidates after confirming no rare/unique-constraint role.',
+          note: 'Never used by any statement since stats reset (sys schema) — removal candidates after confirming no rare/unique-constraint role.',
           sql: `SELECT object_schema AS \`db_name\`, object_name AS \`table_name\`, index_name
                 FROM sys.schema_unused_indexes
                 ORDER BY object_schema, object_name
@@ -332,8 +309,7 @@ export function performanceQueries(dialect: DatabaseDialect): PerfQuerySpec[] {
         },
         {
           name: 'redundant_indexes',
-          note:
-            'Overlapping indexes where a dominant index already covers the key — dropping the redundant one saves write overhead.',
+          note: 'Overlapping indexes where a dominant index already covers the key — dropping the redundant one saves write overhead.',
           sql: `SELECT schema_name AS \`db_name\`, table_name,
                        redundant_index_name, dominant_index_name, sql_drop AS \`drop_statement\`
                 FROM sys.schema_redundant_indexes
@@ -342,8 +318,7 @@ export function performanceQueries(dialect: DatabaseDialect): PerfQuerySpec[] {
         },
         {
           name: 'full_table_scans',
-          note:
-            'Statements doing full table scans (no index used) — the top rows are the first indexing/rewrite targets.',
+          note: 'Statements doing full table scans (no index used) — the top rows are the first indexing/rewrite targets.',
           sql: `SELECT db, LEFT(query, 200) AS \`query\`,
                        full_scan_count, no_index_used_count, exec_count
                 FROM sys.statements_with_full_table_scans
@@ -352,8 +327,7 @@ export function performanceQueries(dialect: DatabaseDialect): PerfQuerySpec[] {
         },
         {
           name: 'slow_statements',
-          note:
-            'Statements ranked by average latency (sys schema; latency shown as time strings) — analyze the top ones with explain_query.',
+          note: 'Statements ranked by average latency (sys schema; latency shown as time strings) — analyze the top ones with explain_query.',
           sql: `SELECT db, LEFT(query, 200) AS \`query\`, exec_count, avg_latency
                 FROM sys.statements_with_runtimes_in_microseconds
                 ORDER BY avg_latency DESC
@@ -361,8 +335,7 @@ export function performanceQueries(dialect: DatabaseDialect): PerfQuerySpec[] {
         },
         {
           name: 'buffer_pool',
-          note:
-            'InnoDB buffer pool hit ratio: 1 - (reads / read_requests). Should be ~99%+; low → more RAM or more index-driven access.',
+          note: 'InnoDB buffer pool hit ratio: 1 - (reads / read_requests). Should be ~99%+; low → more RAM or more index-driven access.',
           sql: `SELECT ROUND(100.0 - 100.0 *
                   MAX(CASE WHEN variable_name = 'Innodb_buffer_pool_reads' THEN variable_value + 0 END) /
                   NULLIF(MAX(CASE WHEN variable_name = 'Innodb_buffer_pool_read_requests' THEN variable_value + 0 END), 0), 2)
@@ -372,8 +345,7 @@ export function performanceQueries(dialect: DatabaseDialect): PerfQuerySpec[] {
         },
         {
           name: 'server_counters',
-          note:
-            'Temp tables on disk, full scans and slow-query count — disk-based temp tables and Select_scan usually mean missing indexes/memory.',
+          note: 'Temp tables on disk, full scans and slow-query count — disk-based temp tables and Select_scan usually mean missing indexes/memory.',
           sql: `SELECT variable_name, variable_value
                 FROM performance_schema.global_status
                 WHERE variable_name IN ('Created_tmp_disk_tables', 'Created_tmp_tables',
@@ -383,8 +355,7 @@ export function performanceQueries(dialect: DatabaseDialect): PerfQuerySpec[] {
         },
         {
           name: 'table_sizes',
-          note:
-            'Large data_free = free space inside the table file (fragmentation) — OPTIMIZE TABLE can reclaim it (needs write/admin, locks the table).',
+          note: 'Large data_free = free space inside the table file (fragmentation) — OPTIMIZE TABLE can reclaim it (needs write/admin, locks the table).',
           sql: `SELECT table_name, table_rows,
                        ROUND(data_length / 1024 / 1024, 1) AS \`data_mb\`,
                        ROUND(index_length / 1024 / 1024, 1) AS \`index_mb\`,
@@ -401,14 +372,12 @@ export function performanceQueries(dialect: DatabaseDialect): PerfQuerySpec[] {
       return [
         {
           name: 'space',
-          note:
-            'freelist_count = pages free for reuse; a high percentage means VACUUM would shrink the file.',
+          note: 'freelist_count = pages free for reuse; a high percentage means VACUUM would shrink the file.',
           sql: `SELECT * FROM pragma_page_count, pragma_freelist_count, pragma_page_size`,
         },
         {
           name: 'indexes',
-          note:
-            'Index inventory (sql NULL = implicit index from PRIMARY KEY/UNIQUE). Check that hot columns in WHERE/JOIN/ORDER BY are covered.',
+          note: 'Index inventory (sql NULL = implicit index from PRIMARY KEY/UNIQUE). Check that hot columns in WHERE/JOIN/ORDER BY are covered.',
           sql: `SELECT name AS [index_name], tbl_name AS [table_name], [sql]
                 FROM sqlite_master
                 WHERE type = 'index'
@@ -416,8 +385,7 @@ export function performanceQueries(dialect: DatabaseDialect): PerfQuerySpec[] {
         },
         {
           name: 'stat1',
-          note:
-            'Optimizer statistics from ANALYZE (table + index row counts). Empty → run ANALYZE so the planner stops guessing.',
+          note: 'Optimizer statistics from ANALYZE (table + index row counts). Empty → run ANALYZE so the planner stops guessing.',
           sql: `SELECT tbl AS [table_name], idx AS [index_name], stat
                 FROM sqlite_stat1
                 ORDER BY tbl`,
@@ -513,7 +481,9 @@ export async function runExplain(
   // Accept queries the model already wrapped in EXPLAIN — rebuild the prefix ourselves.
   const bare = normalizeSql(stmt).replace(/^EXPLAIN\s+(QUERY\s+PLAN\s+)?(\([^)]*\)\s*)?/i, '');
   if (classifyStatement(bare) !== 'read') {
-    throw new Error('explain_query only accepts read statements (SELECT/WITH). Writes cannot be profiled.');
+    throw new Error(
+      'explain_query only accepts read statements (SELECT/WITH). Writes cannot be profiled.',
+    );
   }
 
   const start = Date.now();
@@ -532,11 +502,13 @@ export async function runExplain(
   const res = await db.execute(`${prefix}${capped}`);
   return {
     ...res,
-    rows: res.rows.slice(0, PLAN_MAX_ROWS).map((r) =>
-      r.map((v) =>
-        typeof v === 'string' && v.length > PLAN_MAX_CELL ? `${v.slice(0, PLAN_MAX_CELL)}…` : v,
+    rows: res.rows
+      .slice(0, PLAN_MAX_ROWS)
+      .map((r) =>
+        r.map((v) =>
+          typeof v === 'string' && v.length > PLAN_MAX_CELL ? `${v.slice(0, PLAN_MAX_CELL)}…` : v,
+        ),
       ),
-    ),
     durationMs: Date.now() - start,
   };
 }
@@ -553,31 +525,28 @@ async function explainSqlServer(
   start: number,
 ): Promise<QueryResult> {
   const pool = await (db as any).ensurePool();
-  const res = await pool.request().query(
-    `SET STATISTICS PROFILE ON\n${sql}\nSET STATISTICS PROFILE OFF`,
-  );
+  const res = await pool
+    .request()
+    .query(`SET STATISTICS PROFILE ON\n${sql}\nSET STATISTICS PROFILE OFF`);
   const recordsets: any[] = res.recordsets ?? [];
-  const profile =
-    recordsets.length > 0 ? recordsets[recordsets.length - 1] : (res.recordset ?? []);
+  const profile = recordsets.length > 0 ? recordsets[recordsets.length - 1] : (res.recordset ?? []);
   const columns: string[] =
     profile.columns && Object.keys(profile.columns).length > 0
       ? Object.keys(profile.columns)
       : profile.length > 0
         ? Object.keys(profile[0])
         : [];
-  const rows = (profile as any[])
-    .slice(0, PLAN_MAX_ROWS)
-    .map((r) =>
-      columns.map((c) => {
-        const v = r[c];
-        if (v === null || v === undefined) return null;
-        if (v instanceof Date) return v.toISOString();
-        if (typeof v === 'bigint') return v.toString();
-        if (typeof v === 'string' && v.length > PLAN_MAX_CELL) return `${v.slice(0, PLAN_MAX_CELL)}…`;
-        if (typeof v === 'object') return JSON.stringify(v);
-        return v;
-      }),
-    );
+  const rows = (profile as any[]).slice(0, PLAN_MAX_ROWS).map((r) =>
+    columns.map((c) => {
+      const v = r[c];
+      if (v === null || v === undefined) return null;
+      if (v instanceof Date) return v.toISOString();
+      if (typeof v === 'bigint') return v.toString();
+      if (typeof v === 'string' && v.length > PLAN_MAX_CELL) return `${v.slice(0, PLAN_MAX_CELL)}…`;
+      if (typeof v === 'object') return JSON.stringify(v);
+      return v;
+    }),
+  );
   return {
     columns,
     rows,
