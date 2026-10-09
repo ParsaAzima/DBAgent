@@ -292,7 +292,8 @@ export function Tui(props: TuiProps): React.ReactElement {
       if (input === '/schema') {
         try {
           const tables = await props.db.listTables();
-          const lines = tables
+          const shown = tables.slice(0, 50);
+          const lines = shown
             .map(
               (t) =>
                 `▎${t.name} (${t.kind}, ~${t.rowCountEstimate ?? '?'} rows)\n` +
@@ -305,6 +306,9 @@ export function Tui(props: TuiProps): React.ReactElement {
             )
             .join('\n');
           let text = lines || '(no tables)';
+          if (tables.length > shown.length) {
+            text += `\n… and ${tables.length - shown.length} more tables (ask the agent or use search via chat).`;
+          }
           try {
             const relations = await props.db.listRelations();
             if (relations.length > 0) {

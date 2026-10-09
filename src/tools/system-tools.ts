@@ -40,6 +40,8 @@ export interface SystemToolDeps {
   db: DatabaseDriver;
   allowSystem: boolean;
   allowWrites: boolean;
+  /** Called after imports that may change the schema (createTable). */
+  onSchemaChange?: () => void;
 }
 
 /** Build handler closures capturing the driver and gate flags. */
@@ -83,10 +85,13 @@ export function createSystemToolRegistry(deps: SystemToolDeps): Map<string, Tool
     const table = String(args.table ?? '').trim();
     if (!file || !table) throw new Error('import_csv requires "file" and "table".');
     const batchRows = Number(args.batchRows ?? 500);
-    return importCsv(db, resolveUserPath(file), table, {
-      createTable: !!args.createTable,
+    const createTable = !!args.createTable;
+    const res = await importCsv(db, resolveUserPath(file), table, {
+      createTable,
       batchRows: Number.isFinite(batchRows) && batchRows > 0 ? batchRows : 500,
     });
+    if (createTable) deps.onSchemaChange?.();
+    return res;
   });
 
   registry.set('backup', async (args) => {

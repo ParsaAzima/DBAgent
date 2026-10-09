@@ -23,6 +23,8 @@ import type {
   AgentTurnStreamOptions,
   ToolResultData,
 } from './types.js';
+import type { EmbedFn } from '../system/semantic.js';
+import { defaultEmbedFn } from '../system/semantic.js';
 import type { LLMAdapter } from './types.js';
 import { buildTools } from '../tools/index.js';
 import { buildSystemPrompt } from './prompt.js';
@@ -83,6 +85,8 @@ export class Agent {
       allowShell?: boolean;
       ddlMode?: DdlMode;
       maskPii?: boolean;
+      /** Embedding backend for search_tables; defaults to the session provider. */
+      embed?: EmbedFn;
       hooks?: AgentHooks;
     } = {},
   ) {
@@ -99,6 +103,7 @@ export class Agent {
       allowShell: this.safety.allowShell,
       ddlMode: this.safety.ddlMode,
       maskPii: opts.maskPii ?? true,
+      embed: opts.embed ?? defaultEmbedFn(this.providerConfig),
       hooks: this.hooks,
     });
     this.tools = built.tools;

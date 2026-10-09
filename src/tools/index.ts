@@ -14,6 +14,8 @@ import type {
   ToolSpec,
   WriteConfirmRequest,
 } from '../core/types.js';
+import type { EmbedFn } from '../system/semantic.js';
+import { SchemaSearch } from '../system/semantic.js';
 import { createSystemToolRegistry, type SystemToolDeps } from './system-tools.js';
 import { createFileToolRegistry, type FileToolDeps } from './file-tools.js';
 import { createShellToolRegistry, type ShellToolDeps } from './shell-tool.js';
@@ -41,6 +43,12 @@ export interface BuildToolsOptions {
    * only, 'on' additionally registers apply_ddl (still human-confirmed).
    */
   ddlMode?: DdlMode;
+  /**
+   * Embedding backend for search_tables. Defaults to the session LLM
+   * provider when it speaks OpenAI-compatible embeddings, else the
+   * keyword fallback. Pass an explicit function in tests.
+   */
+  embed?: EmbedFn;
   /**
    * Mask PII-looking columns in sample_rows/query results (default true).
    * Disable with --no-mask-pii / DBAGENT_MASK_PII=0.
@@ -133,8 +141,13 @@ export function buildTools(db: DatabaseDriver, opts: BuildToolsOptions = {}): Bu
       opts.hooks?.audit?.({ tool, sql, ok: false, error, durationMs: 0, confirmed: false });
       throw new Error(error);
     }
-    return runAudited(tool, sql, undefined, () => db.execute(sql), true);
+    const res = await runAudited(tool, sql, undefined, () => db.execute(sql), true);
+    schemaSearch.invalidate();
+    return res;
   }
+
+  /** Semantic table index for search_tables; rebuilt lazily per session. */
+  const schemaSearch = new SchemaSearch(db, { embed: opts.embed });
 
   const tools: ToolSpec[] = [
     {
@@ -148,6 +161,26 @@ export function buildTools(db: DatabaseDriver, opts: BuildToolsOptions = {}): Bu
       description:
         'Drop the cached schema snapshot and re-read the live catalog (tables, views, columns). Use after migrations, imports, or any DDL applied outside this session, or when a table looks missing/stale.',
       parameters: { type: 'object', description: 'No arguments.', properties: {}, required: [] },
+    },
+    {
+      name: 'search_tables',
+      description:
+        'Find relevant tables by meaning (embedding-ranked when the provider supports it, keyword fallback offline). Returns top matches with column names and scores. Prefer this over list_tables on large schemas; then describe_table the hits. Empty query lists tables alphabetically.',
+      parameters: {
+        type: 'object',
+        description: 'Arguments for search_tables.',
+        properties: {
+          query: {
+            type: 'string',
+            description: 'What you are looking for, e.g. "customer orders" or "payment".',
+          },
+          limit: {
+            type: 'number',
+            description: 'Max matches (default 5, max 20).',
+          },
+        },
+        required: ['query'],
+      },
     },
     {
       name: 'list_relations',
@@ -320,7 +353,18 @@ export function buildTools(db: DatabaseDriver, opts: BuildToolsOptions = {}): Bu
       'refresh_schema',
       async () => {
         await db.refreshSchema();
+        schemaSearch.invalidate();
         return db.listTables();
+      },
+    ],
+    [
+      'search_tables',
+      async (args) => {
+        const query = String(args.query ?? '');
+        const limit = Number(args.limit ?? 5);
+        if (!Number.isFinite(limit) || limit < 1)
+          throw new Error('"limit" must be a positive number.');
+        return schemaSearch.search(query, limit);
       },
     ],
     [
@@ -485,6 +529,7 @@ export function buildTools(db: DatabaseDriver, opts: BuildToolsOptions = {}): Bu
       db,
       allowSystem: true,
       allowWrites: opts.allowWrites ?? false,
+      onSchemaChange: () => schemaSearch.invalidate(),
     };
     const sysRegistry = createSystemToolRegistry(sysDeps);
 

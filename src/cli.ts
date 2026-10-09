@@ -268,8 +268,9 @@ program
       if (input === '/schema') {
         try {
           const tables = await db.listTables();
+          const shown = tables.slice(0, 50);
           console.log(
-            tables
+            shown
               .map(
                 (t) =>
                   `- ${t.name} (${t.kind}, ~${t.rowCountEstimate ?? '?'} rows)\n` +
@@ -279,6 +280,11 @@ program
               )
               .join('\n') || '(no tables)',
           );
+          if (tables.length > shown.length) {
+            console.log(
+              `… and ${tables.length - shown.length} more tables (ask the agent or use search via chat).`,
+            );
+          }
           try {
             const relations = await db.listRelations();
             if (relations.length > 0) {

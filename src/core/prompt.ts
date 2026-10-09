@@ -21,6 +21,18 @@ export async function buildSystemPrompt(
   const shellAllowed = safety?.allowShell ?? envBool(process.env.DBAGENT_ALLOW_SHELL);
   const ddlMode: DdlMode = safety?.ddlMode ?? parseDdlEnv(process.env.DBAGENT_ALLOW_DDL);
 
+  // Large schemas: dumping the whole catalog into context does not scale,
+  // so the agent navigates via search_tables + lazy describe_table.
+  // listTables() is cached, so counting is cheap.
+  const largeThreshold = numEnv(process.env.DBAGENT_LARGE_SCHEMA_TABLES, 30);
+  let tableCount = 0;
+  try {
+    tableCount = (await db.listTables()).length;
+  } catch {
+    /* introspection failed — prompt stays generic */
+  }
+  const isLargeSchema = tableCount > largeThreshold;
+
   const dialectNotes: Record<DatabaseDriver['dialect'], string> = {
     sqlite: [
       'SQLite specifics: types are flexible (INTEGER, TEXT, REAL, BLOB, NULL).',
@@ -81,7 +93,9 @@ export async function buildSystemPrompt(
     `LLM: ${cfg.id}/${cfg.model}`,
     '',
     '## Workflow',
-    '1. Start with list_tables to see what exists (cached per session — cheap to repeat). The FK join graph is already in this prompt; call list_relations/get_schema_graph only to filter or refresh it.',
+    isLargeSchema
+      ? `1. LARGE SCHEMA (${tableCount} tables): do NOT start with list_tables — it is too big. Use search_tables with task keywords, then describe_table on the hits. The FK join graph is already in this prompt; call list_relations/get_schema_graph only to filter or refresh it.`
+      : '1. Start with list_tables to see what exists (cached per session — cheap to repeat). The FK join graph is already in this prompt; call list_relations/get_schema_graph only to filter or refresh it.',
     '2. Use describe_table on the relevant tables to learn exact column names and types.',
     '3. If helpful, peek at sample_rows (a few rows) to understand value formats.',
     "4. Write and run SQL with the query tool, then answer in the user's language.",
@@ -159,4 +173,10 @@ function parseDdlEnv(value: string | undefined): DdlMode {
   if (v === 'on' || v === 'yes') return 'on';
   if (v === 'dry-run' || v === 'dryrun' || v === '1' || v === 'true') return 'dry-run';
   return 'off';
+}
+
+/** Numeric env with fallback (used for DBAGENT_LARGE_SCHEMA_TABLES). */
+function numEnv(value: string | undefined, fallback: number): number {
+  const n = value === undefined ? NaN : Number(value);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
 }
