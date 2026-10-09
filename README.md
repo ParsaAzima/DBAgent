@@ -87,9 +87,9 @@ Database URLs: `sqlite://./app.db` · `postgres://user:pass@host:5432/db?ssl=tru
 
 | Tool                 | Purpose                                                                                                                                                                                             |
 | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `list_tables`        | Tables + views with row-count estimates (cached per session) — avoid on 30+ table schemas, use `search_tables`                                                                                                                          |
+| `list_tables`        | Tables + views with row-count estimates (cached per session) — avoid on 30+ table schemas, use `search_tables`                                                                                      |
 | `refresh_schema`     | Clear the schema cache and re-read the live catalog (use after external DDL/migrations)                                                                                                             |
-| `search_tables`      | Find tables by meaning (embedding-ranked, keyword fallback offline; `limit`, empty query lists alphabetically) + column names — then `describe_table` the hits                                          |
+| `search_tables`      | Find tables by meaning (embedding-ranked, keyword fallback offline; `limit`, empty query lists alphabetically) + column names — then `describe_table` the hits                                      |
 | `list_relations`     | Foreign-key edges (optional `table` filter) — join keys for correct JOINs                                                                                                                           |
 | `get_schema_graph`   | Full FK graph: all edges plus tables with no edges                                                                                                                                                  |
 | `list_routines`      | Stored procedures, functions, triggers (SQLite: triggers only; optional `kind` filter)                                                                                                              |
@@ -165,25 +165,25 @@ When `--allow-system` is on, exports and backups always land inside the working 
 
 Provider keys go in `.env` (see [.env.example](.env.example)). Any one provider is enough.
 
-| Variable                                                                | Purpose                                                 |
-| ----------------------------------------------------------------------- | ------------------------------------------------------- |
-| `OPENAI_API_KEY` / `OPENAI_BASE_URL`                                    | OpenAI or any compatible gateway                        |
-| `OPENROUTER_API_KEY`                                                    | OpenRouter — models as `vendor/model`                   |
-| `ANTHROPIC_API_KEY`                                                     | Claude                                                  |
-| `GEMINI_API_KEY`                                                        | Gemini                                                  |
-| `OLLAMA_BASE_URL`                                                       | defaults to `http://localhost:11434`                    |
-| `DBAGENT_PROVIDER` / `DBAGENT_MODEL`                                    | defaults, overridable by CLI flags                      |
-| `DBAGENT_DB_URL`                                                        | default database                                        |
-| `DBAGENT_ALLOW_WRITES` / `DBAGENT_ALLOW_SYSTEM` / `DBAGENT_ALLOW_SHELL` | permission tiers                                        |
-| `DBAGENT_ASSUME_YES`                                                    | auto-confirm writes (`--yes`), default off              |
-| `DBAGENT_ALLOW_DDL`                                                     | `off` / `dry-run` / `on` (`--allow-ddl`), default `off` |
-| `DBAGENT_MASK_PII`                                                  | `0` disables PII masking (`--no-mask-pii`), default on |
-| `DBAGENT_EMBED_MODEL`                                               | embedding model for `search_tables` (default `text-embedding-3-small`, `nomic-embed-text` on Ollama) |
-| `DBAGENT_LARGE_SCHEMA_TABLES`                                        | table count that switches the prompt to search-first navigation (default `30`) |
-| `DBAGENT_AUDIT_FILE`                                                    | audit log path (default `~/.dbagent/audit.log`)         |
-| `DBAGENT_MAX_ROWS` / `DBAGENT_MAX_ROUNDS` / `DBAGENT_TIMEOUT_MS`        | guardrail tuning                                        |
-| `DBAGENT_OUT_DIR`                                                       | export/backup output directory                          |
-| `DBAGENT_TEMPERATURE` / `DBAGENT_MAX_OUTPUT_TOKENS`                     | model sampling                                          |
+| Variable                                                                | Purpose                                                                                              |
+| ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `OPENAI_API_KEY` / `OPENAI_BASE_URL`                                    | OpenAI or any compatible gateway                                                                     |
+| `OPENROUTER_API_KEY`                                                    | OpenRouter — models as `vendor/model`                                                                |
+| `ANTHROPIC_API_KEY`                                                     | Claude                                                                                               |
+| `GEMINI_API_KEY`                                                        | Gemini                                                                                               |
+| `OLLAMA_BASE_URL`                                                       | defaults to `http://localhost:11434`                                                                 |
+| `DBAGENT_PROVIDER` / `DBAGENT_MODEL`                                    | defaults, overridable by CLI flags                                                                   |
+| `DBAGENT_DB_URL`                                                        | default database                                                                                     |
+| `DBAGENT_ALLOW_WRITES` / `DBAGENT_ALLOW_SYSTEM` / `DBAGENT_ALLOW_SHELL` | permission tiers                                                                                     |
+| `DBAGENT_ASSUME_YES`                                                    | auto-confirm writes (`--yes`), default off                                                           |
+| `DBAGENT_ALLOW_DDL`                                                     | `off` / `dry-run` / `on` (`--allow-ddl`), default `off`                                              |
+| `DBAGENT_MASK_PII`                                                      | `0` disables PII masking (`--no-mask-pii`), default on                                               |
+| `DBAGENT_EMBED_MODEL`                                                   | embedding model for `search_tables` (default `text-embedding-3-small`, `nomic-embed-text` on Ollama) |
+| `DBAGENT_LARGE_SCHEMA_TABLES`                                           | table count that switches the prompt to search-first navigation (default `30`)                       |
+| `DBAGENT_AUDIT_FILE`                                                    | audit log path (default `~/.dbagent/audit.log`)                                                      |
+| `DBAGENT_MAX_ROWS` / `DBAGENT_MAX_ROUNDS` / `DBAGENT_TIMEOUT_MS`        | guardrail tuning                                                                                     |
+| `DBAGENT_OUT_DIR`                                                       | export/backup output directory                                                                       |
+| `DBAGENT_TEMPERATURE` / `DBAGENT_MAX_OUTPUT_TOKENS`                     | model sampling                                                                                       |
 
 ## Library usage
 

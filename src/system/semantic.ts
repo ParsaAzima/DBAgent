@@ -53,8 +53,7 @@ export function defaultEmbedFn(cfg: LLMProviderConfig): EmbedFn | undefined {
   if (cfg.id !== 'openai' && cfg.id !== 'openrouter' && cfg.id !== 'ollama') {
     return undefined;
   }
-  const fallback =
-    cfg.id === 'ollama' ? 'http://localhost:11434' : 'https://api.openai.com';
+  const fallback = cfg.id === 'ollama' ? 'http://localhost:11434' : 'https://api.openai.com';
   const base = apiBase(cfg.baseUrl ?? fallback, fallback);
   const model = defaultEmbedModel(cfg.id);
   const headers: Record<string, string> = { 'content-type': 'application/json' };
@@ -73,7 +72,8 @@ export function defaultEmbedFn(cfg: LLMProviderConfig): EmbedFn | undefined {
         signal: ctrl.signal,
         body: JSON.stringify({ model, input: texts }),
       });
-      if (!res.ok) throw new Error(`embeddings HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
+      if (!res.ok)
+        throw new Error(`embeddings HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
       const json = (await res.json()) as { data?: { embedding: number[] }[] };
       if (!Array.isArray(json.data) || json.data.length !== texts.length) {
         throw new Error('embeddings response shape unexpected');
