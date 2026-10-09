@@ -34,7 +34,14 @@ An AI-powered database agent with a professional terminal UI — inspect, query,
 Requires Node.js ≥ 22.5 (built-in `node:sqlite`; falls back to `better-sqlite3`).
 
 ```bash
-git clone <repo> && cd dbagent
+npm install -g dbagent        # or run without installing:
+npx dbagent@latest chat --db sqlite://./app.db --provider openrouter
+```
+
+From source:
+
+```bash
+git clone https://github.com/ParsaAzima/DBAgent.git && cd DBAgent
 npm install
 npm run build
 cp .env.example .env    # add at least one provider API key
