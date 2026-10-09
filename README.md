@@ -52,25 +52,6 @@ node dist/cli.js chat --db sqlite://./demo.db --provider openrouter
 
 Ask things like *"Which product sold the most last month?"* or *"Export the customers table and tell me the DB size"* — the agent explores the schema, writes and runs SQL, and answers with rendered tables.
 
-### Connect to your own databases
-
-```bash
-# Find what's running on this machine (servers, SQLite files, client tools)
-dbagent discover
-
-# Then connect directly
-dbagent chat --db "postgres://user:pass@localhost:5432/mydb" --provider openrouter
-dbagent chat --db "mysql://user:pass@localhost:3306/shop" --provider anthropic
-dbagent chat --db "sqlserver://sa:pass@localhost:1433/mydb?encrypt=true" --provider gemini
-dbagent chat --db sqlite://D:/data/mydb.sqlite --provider gemini
-```
-
-### One-shot questions
-
-```bash
-dbagent ask "Top 5 customers by total spend?" --db sqlite://./demo.db --provider openrouter
-dbagent health --db mysql://user:pass@localhost:3306/shop   # no LLM needed
-```
 
 ## The TUI
 
@@ -90,20 +71,6 @@ dbagent health --db mysql://user:pass@localhost:3306/shop   # no LLM needed
 The status bar is always visible: current `provider/model`, safety mode, session id, cumulative tokens in/out, and **estimated cost** (built-in price table for popular models; shows `$0` when pricing is unknown).
 
 Session transcripts — including tool results, per-turn usage and timestamps — are auto-saved after every turn to `~/.dbagent/sessions/` and restored with `--resume`.
-
-## Commands
-
-```
-dbagent chat    [--db <url>] [--provider <id>] [--model <name>]
-                [--allow-writes] [--allow-system] [--allow-shell]
-                [--max-rows <n>] [--resume [id]] [--plain]
-dbagent ask     "<question>"      (same flags, single-turn)
-dbagent health  [--db <url>]      (connection check, no LLM)
-dbagent discover                  (scan this machine for databases)
-dbagent sessions list|rm <id>     (manage saved sessions)
-```
-
-Provider ids: `openai` · `openrouter` · `anthropic` · `gemini` · `ollama`
 
 Database URLs: `sqlite://./app.db` · `postgres://user:pass@host:5432/db?ssl=true` · `mysql://user:pass@host:3306/db` · `sqlserver://user:pass@host:1433/db?encrypt=true&trustServerCertificate=false` (named instance: `&instance=SQLEXPRESS`)
 
@@ -146,7 +113,7 @@ Database URLs: `sqlite://./app.db` · `postgres://user:pass@host:5432/db?ssl=tru
 Performance work is the agent's primary workflow. A typical session:
 
 ```bash
-dbagent chat --db "postgres://user:pass@host:5432/prod" --provider openrouter
+node dist/cli.js chat --db "postgres://user:pass@host:5432/prod" --provider openrouter
 ```
 
 1. Ask *"why is this slow?"* — the agent starts with `performance_report`, which runs a per-dialect diagnostic catalog (each section best-effort: a missing system view or privilege degrades to an error note, never a failed report).
