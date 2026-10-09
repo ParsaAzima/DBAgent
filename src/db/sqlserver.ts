@@ -23,6 +23,7 @@ import {
   enforceLimit,
 } from './guard.js';
 import { buildSchemaGraph, cloneRelations, cloneTables, findCachedTable } from './schema-cache.js';
+import { isSensitiveColumn } from '../system/pii.js';
 
 /**
  * T-SQL statements that can change server/database state even though they do
@@ -281,13 +282,17 @@ export class SqlServerDriver implements DatabaseDriver {
        WHERE o.name = @table${schema ? ' AND SCHEMA_NAME(o.schema_id) = @schema' : ''}
        ORDER BY c.column_id`,
     );
-    return (res.recordset ?? []).map((r: any) => ({
-      name: String(r.name),
-      dataType: formatTsqlType(r),
-      nullable: !!r.is_nullable,
-      isPrimaryKey: Number(r.is_primary) === 1,
-      defaultValue: r.default_value != null ? String(r.default_value) : null,
-    }));
+    return (res.recordset ?? []).map((r: any) => {
+      const name = String(r.name);
+      return {
+        name,
+        dataType: formatTsqlType(r),
+        nullable: !!r.is_nullable,
+        isPrimaryKey: Number(r.is_primary) === 1,
+        defaultValue: r.default_value != null ? String(r.default_value) : null,
+        sensitive: isSensitiveColumn(name) || undefined,
+      };
+    });
   }
 
   private async runRead(sql: string): Promise<QueryResult> {

@@ -33,6 +33,8 @@ export interface ResolvedConfig {
   assumeYes: boolean;
   /** CREATE INDEX gate: off | dry-run (analyze) | on (apply + confirm). */
   ddlMode: DdlMode;
+  /** Mask PII-looking columns in results. Default true. */
+  maskPii: boolean;
   maxRows: number;
   maxRounds: number;
   timeoutMs: number;
@@ -78,6 +80,7 @@ export function resolveConfig(opts: {
   allowShellFlag?: boolean;
   assumeYesFlag?: boolean;
   ddlModeFlag?: string | boolean;
+  maskPiiFlag?: boolean;
   maxRowsFlag?: number;
 }): ResolvedConfig {
   const provider = parseProvider(opts.providerFlag ?? process.env.DBAGENT_PROVIDER) ?? 'openai';
@@ -108,6 +111,7 @@ export function resolveConfig(opts: {
     allowShell: opts.allowShellFlag ?? bool(process.env.DBAGENT_ALLOW_SHELL, false),
     assumeYes: opts.assumeYesFlag ?? bool(process.env.DBAGENT_ASSUME_YES, false),
     ddlMode: parseDdlMode(opts.ddlModeFlag ?? process.env.DBAGENT_ALLOW_DDL),
+    maskPii: opts.maskPiiFlag ?? !off(process.env.DBAGENT_MASK_PII),
     maxRows: opts.maxRowsFlag ?? num(process.env.DBAGENT_MAX_ROWS, 100),
     maxRounds: num(process.env.DBAGENT_MAX_ROUNDS, 12),
     timeoutMs: num(process.env.DBAGENT_TIMEOUT_MS, 120_000),
@@ -152,6 +156,12 @@ function num(value: string | undefined, fallback: number): number {
 function bool(value: string | undefined, fallback: boolean): boolean {
   if (value === undefined) return fallback;
   return ['1', 'true', 'yes', 'on'].includes(value.toLowerCase());
+}
+
+/** True for explicit opt-out values (0/false/no/off). */
+function off(value: string | undefined): boolean {
+  if (value === undefined) return false;
+  return ['0', 'false', 'no', 'off'].includes(value.toLowerCase());
 }
 
 /**

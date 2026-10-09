@@ -19,6 +19,7 @@ import { createFileToolRegistry, type FileToolDeps } from './file-tools.js';
 import { createShellToolRegistry, type ShellToolDeps } from './shell-tool.js';
 import { runExplain, runPerformanceReport } from '../system/perf.js';
 import { classifyStatement, parseCreateIndex, singleStatement } from '../db/guard.js';
+import { maskResult } from '../system/pii.js';
 import { estimateWriteImpact, extractWriteTables, hasNoWhere } from '../system/impact.js';
 
 export type ToolHandler = (args: Record<string, unknown>) => Promise<unknown>;
@@ -40,6 +41,11 @@ export interface BuildToolsOptions {
    * only, 'on' additionally registers apply_ddl (still human-confirmed).
    */
   ddlMode?: DdlMode;
+  /**
+   * Mask PII-looking columns in sample_rows/query results (default true).
+   * Disable with --no-mask-pii / DBAGENT_MASK_PII=0.
+   */
+  maskPii?: boolean;
   /**
    * Runtime hooks shared by reference with the Agent/CLI: audit sink for
    * every SQL statement and the human-confirmation gate for writes.
@@ -72,6 +78,8 @@ export function buildTools(db: DatabaseDriver, opts: BuildToolsOptions = {}): Bu
         rowCount: res.rowCount,
         durationMs: Date.now() - t0,
         ...(confirmed !== undefined ? { confirmed } : {}),
+        ...(res.maskedColumns?.length ? { maskedColumns: res.maskedColumns } : {}),
+        ...(res.unmasked ? { unmasked: true } : {}),
       });
       return res;
     } catch (err) {
@@ -87,6 +95,18 @@ export function buildTools(db: DatabaseDriver, opts: BuildToolsOptions = {}): Bu
       });
       throw err;
     }
+  }
+
+  /**
+   * PII-mask an agent-facing result unless masking is disabled globally
+   * or the caller passes unmask (explicit exact-value request, audited).
+   */
+  function maybeMask(res: QueryResult, unmask: boolean): QueryResult {
+    if ((opts.maskPii ?? true) !== true) return res;
+    if (unmask) return res.unmasked ? res : { ...res, unmasked: true };
+    const { rows, maskedColumns } = maskResult(res.columns, res.rows);
+    if (maskedColumns.length === 0) return res;
+    return { ...res, rows, maskedColumns };
   }
 
   /**
@@ -187,13 +207,18 @@ export function buildTools(db: DatabaseDriver, opts: BuildToolsOptions = {}): Bu
     {
       name: 'sample_rows',
       description:
-        'Peek at the first N rows (default 5, max limited by guardrails) of a table to learn value formats.',
+        'Peek at the first N rows (default 5, max limited by guardrails) of a table to learn value formats. PII-looking columns (email/phone/…) are masked unless unmask is set.',
       parameters: {
         type: 'object',
         description: 'Arguments for sample_rows.',
         properties: {
           table: { type: 'string', description: 'Table (or view) name.' },
           limit: { type: 'number', description: 'How many rows to sample (default 5).' },
+          unmask: {
+            type: 'boolean',
+            description:
+              'Return exact values for masked columns (audited). Use only when the user explicitly asked for those values.',
+          },
         },
         required: ['table'],
       },
@@ -201,7 +226,7 @@ export function buildTools(db: DatabaseDriver, opts: BuildToolsOptions = {}): Bu
     {
       name: 'query',
       description:
-        'Run a read-only SQL statement (SELECT/WITH) against the database and return the result rows.',
+        'Run a read-only SQL statement (SELECT/WITH) against the database and return the result rows. PII-looking columns are masked unless unmask is set (audited — use only for values the user explicitly requested).',
       parameters: {
         type: 'object',
         description: 'Arguments for query.',
@@ -209,6 +234,11 @@ export function buildTools(db: DatabaseDriver, opts: BuildToolsOptions = {}): Bu
           sql: {
             type: 'string',
             description: `A single read-only ${'`'}SELECT${'`'} statement in the database's dialect.`,
+          },
+          unmask: {
+            type: 'boolean',
+            description:
+              'Return exact values for masked columns (audited). Use only when the user explicitly asked for those values.',
           },
         },
         required: ['sql'],
@@ -338,11 +368,12 @@ export function buildTools(db: DatabaseDriver, opts: BuildToolsOptions = {}): Bu
       async (args) => {
         const name = String(args.table ?? '').trim();
         const limit = Number(args.limit ?? 5);
+        const unmask = args.unmask === true || String(args.unmask ?? '').toLowerCase() === 'true';
         if (!name) throw new Error('sample_rows requires "table".');
         if (!Number.isFinite(limit) || limit < 1)
           throw new Error('"limit" must be a positive number.');
-        return runAudited('sample_rows', undefined, `table=${name} limit=${limit}`, () =>
-          db.sampleRows(name, limit),
+        return runAudited('sample_rows', undefined, `table=${name} limit=${limit}`, async () =>
+          maybeMask(await db.sampleRows(name, limit), unmask),
         );
       },
     ],
@@ -350,8 +381,11 @@ export function buildTools(db: DatabaseDriver, opts: BuildToolsOptions = {}): Bu
       'query',
       async (args) => {
         const sql = String(args.sql ?? '').trim();
+        const unmask = args.unmask === true || String(args.unmask ?? '').toLowerCase() === 'true';
         if (!sql) throw new Error('query requires "sql".');
-        return runAudited('query', sql, undefined, () => db.execute(sql));
+        return runAudited('query', sql, undefined, async () =>
+          maybeMask(await db.execute(sql), unmask),
+        );
       },
     ],
     [

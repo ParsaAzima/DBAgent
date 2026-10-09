@@ -63,6 +63,7 @@ program
     '--allow-ddl [mode]',
     'CREATE INDEX gate: dry-run (analyze only) or on (apply after confirm). Bare flag = dry-run',
   )
+  .option('--no-mask-pii', 'Disable PII masking in results (shows exact values)')
   .option('--yes', 'Auto-confirm write prompts (dangerous: no y/n gate)', false)
   .option(
     '--allow-system',
@@ -86,6 +87,9 @@ program
         allowShellFlag: opts.allowShell,
         assumeYesFlag: opts.yes,
         ddlModeFlag: opts.allowDdl,
+        // Commander defaults --no-mask-pii to true; only forward an explicit
+        // opt-out so DBAGENT_MASK_PII=0 still works without the flag.
+        maskPiiFlag: opts.maskPii ? undefined : false,
         maxRowsFlag: opts.maxRows,
       });
     } catch (err) {
@@ -138,6 +142,7 @@ program
       allowWrites: cfg.allowWrites,
       allowShell: cfg.allowShell,
       ddlMode: cfg.ddlMode,
+      maskPii: cfg.maskPii,
       hooks,
     });
     hooks.audit = createAuditSink({ sessionId, dbTarget: db.describeTarget() });
@@ -203,6 +208,9 @@ program
       `  DDL     : ${cfg.ddlMode} (CREATE INDEX ${cfg.ddlMode === 'on' ? 'apply+confirm' : cfg.ddlMode === 'dry-run' ? 'analyze-only' : 'disabled'}; DROP/ALTER always blocked)`,
     );
     console.log(`  Audit   : all SQL → ~/.dbagent/audit.log`);
+    console.log(
+      `  PII     : ${cfg.maskPii ? 'masked in results (unmask: true to reveal, audited)' : 'UNMASKED (--no-mask-pii)'}`,
+    );
     console.log(`  Session : ${sessionId}`);
     console.log(`Commands: /exit  /reset  /save  /schema  /refresh  /help\n`);
 
@@ -318,6 +326,7 @@ program
   .option('--allow-writes', 'Enable writes (discouraged for one-shots)', false)
   .option('--allow-system', 'Enable system tools (stats/export/import/backup/discover)', false)
   .option('--allow-ddl [mode]', 'CREATE INDEX gate: dry-run or on (bare flag = dry-run)')
+  .option('--no-mask-pii', 'Disable PII masking in results (shows exact values)')
   .option('--yes', 'Auto-confirm write prompts (dangerous: no y/n gate)', false)
   .option('--max-rows <n>', 'Hard LIMIT for read queries', parseInt)
   .action(async (question, opts) => {
@@ -332,6 +341,7 @@ program
         allowSystemFlag: opts.allowSystem,
         assumeYesFlag: opts.yes,
         ddlModeFlag: opts.allowDdl,
+        maskPiiFlag: opts.maskPii ? undefined : false,
         maxRowsFlag: opts.maxRows,
       });
     } catch (err) {
@@ -355,6 +365,7 @@ program
             allowSystem: cfg.allowSystem,
             allowWrites: cfg.allowWrites,
             ddlMode: cfg.ddlMode,
+            maskPii: cfg.maskPii,
             hooks,
           });
           return agent.runTurn(question, { timeoutMs: cfg.timeoutMs });

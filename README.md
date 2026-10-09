@@ -85,9 +85,9 @@ Database URLs: `sqlite://./app.db` · `postgres://user:pass@host:5432/db?ssl=tru
 | `list_relations`     | Foreign-key edges (optional `table` filter) — join keys for correct JOINs                                                                                                                           |
 | `get_schema_graph`   | Full FK graph: all edges plus tables with no edges                                                                                                                                                  |
 | `list_routines`      | Stored procedures, functions, triggers (SQLite: triggers only; optional `kind` filter)                                                                                                              |
-| `describe_table`     | Columns, types, nullability, primary keys, defaults                                                                                                                                                 |
-| `sample_rows`        | Peek at the first N rows of a table                                                                                                                                                                 |
-| `query`              | Run read-only SQL (LIMIT auto-enforced)                                                                                                                                                             |
+| `describe_table`     | Columns, types, nullability, primary keys, defaults (`sensitive` flags PII columns)                                                                                                                 |
+| `sample_rows`        | Peek at the first N rows of a table (PII masked; `unmask: true` reveals, audited)                                                                                                                   |
+| `query`              | Run read-only SQL (LIMIT auto-enforced; PII masked; `unmask: true` reveals, audited)                                                                                                                |
 | `execute`            | Run INSERT/UPDATE/DELETE — needs `--allow-writes` plus interactive y/n confirmation (SQL + impact estimate); every call is audit-logged                                                             |
 | `propose_index`      | Analyze a CREATE INDEX proposal without executing it (validates + EXPLAINs the target query); read-only, works in every DDL mode                                                                    |
 | `apply_ddl`          | Execute one CREATE INDEX after y/n confirmation — only with `--allow-ddl=on` + `--allow-writes`                                                                                                     |
@@ -142,6 +142,7 @@ Safety is layered and opt-in. Out of the box the agent **cannot** modify anythin
 | Data writes (INSERT/UPDATE/DELETE) | blocked                        | `--allow-writes`                                                                              |
 | Write confirmation (SQL + impact)  | interactive y/n per statement  | `--yes` skips it (dangerous)                                                                  |
 | Audit log (every SQL statement)    | on (`~/.dbagent/audit.log`)    | `DBAGENT_AUDIT_FILE` to relocate                                                              |
+| PII masking (email/phone/…)        | on in `sample_rows`/`query`    | `unmask: true` per call (audited) or `--no-mask-pii` / `DBAGENT_MASK_PII=0`                   |
 | CREATE INDEX (only executable DDL) | blocked                        | `--allow-ddl=dry-run` (analyze) or `--allow-ddl=on` (apply + confirm, needs `--allow-writes`) |
 | DROP / ALTER / TRUNCATE / RENAME   | **always blocked**             | —                                                                                             |
 | Multi-statement SQL                | blocked (1 statement per call) | —                                                                                             |
@@ -168,6 +169,7 @@ Provider keys go in `.env` (see [.env.example](.env.example)). Any one provider 
 | `DBAGENT_ALLOW_WRITES` / `DBAGENT_ALLOW_SYSTEM` / `DBAGENT_ALLOW_SHELL` | permission tiers                                        |
 | `DBAGENT_ASSUME_YES`                                                    | auto-confirm writes (`--yes`), default off              |
 | `DBAGENT_ALLOW_DDL`                                                     | `off` / `dry-run` / `on` (`--allow-ddl`), default `off` |
+| `DBAGENT_MASK_PII`                                                      | `0` disables PII masking (`--no-mask-pii`), default on  |
 | `DBAGENT_AUDIT_FILE`                                                    | audit log path (default `~/.dbagent/audit.log`)         |
 | `DBAGENT_MAX_ROWS` / `DBAGENT_MAX_ROUNDS` / `DBAGENT_TIMEOUT_MS`        | guardrail tuning                                        |
 | `DBAGENT_OUT_DIR`                                                       | export/backup output directory                          |

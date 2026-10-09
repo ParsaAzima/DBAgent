@@ -21,6 +21,7 @@ import {
   enforceLimit,
 } from './guard.js';
 import { buildSchemaGraph, cloneRelations, cloneTables, findCachedTable } from './schema-cache.js';
+import { isSensitiveColumn } from '../system/pii.js';
 
 export class MysqlDriver implements DatabaseDriver {
   readonly dialect = 'mysql' as const;
@@ -239,13 +240,17 @@ export class MysqlDriver implements DatabaseDriver {
        ORDER BY ordinal_position`,
       [this.database, table],
     );
-    return (rows as any[]).map((r) => ({
-      name: String(r.column_name ?? r.COLUMN_NAME),
-      dataType: String(r.column_type ?? r.COLUMN_TYPE),
-      nullable: String(r.is_nullable ?? 'YES').toUpperCase() === 'YES',
-      isPrimaryKey: String(r.column_key ?? '') === 'PRI',
-      defaultValue: r.column_default ?? null,
-    }));
+    return (rows as any[]).map((r) => {
+      const name = String(r.column_name ?? r.COLUMN_NAME);
+      return {
+        name,
+        dataType: String(r.column_type ?? r.COLUMN_TYPE),
+        nullable: String(r.is_nullable ?? 'YES').toUpperCase() === 'YES',
+        isPrimaryKey: String(r.column_key ?? '') === 'PRI',
+        defaultValue: r.column_default ?? null,
+        sensitive: isSensitiveColumn(name) || undefined,
+      };
+    });
   }
 
   private async runRead(sql: string): Promise<QueryResult> {

@@ -152,6 +152,8 @@ export interface ColumnInfo {
   nullable: boolean;
   isPrimaryKey: boolean;
   defaultValue: string | null;
+  /** True when the name looks like PII (email/phone/national id/…); values are masked. */
+  sensitive?: boolean;
 }
 
 /** Table metadata exposed to the agent. */
@@ -208,6 +210,10 @@ export interface QueryResult {
   rowCount: number;
   /** Wall-clock execution time in milliseconds. */
   durationMs: number;
+  /** Columns whose values were PII-masked (absent when nothing was hidden). */
+  maskedColumns?: string[];
+  /** True when the caller explicitly bypassed PII masking for this result. */
+  unmasked?: boolean;
 }
 
 /** DDL modes for CREATE INDEX: off (default) < dry-run (analyze only) < on. */

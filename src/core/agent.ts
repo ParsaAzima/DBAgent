@@ -82,6 +82,7 @@ export class Agent {
       allowWrites?: boolean;
       allowShell?: boolean;
       ddlMode?: DdlMode;
+      maskPii?: boolean;
       hooks?: AgentHooks;
     } = {},
   ) {
@@ -97,6 +98,7 @@ export class Agent {
       allowWrites: this.safety.allowWrites,
       allowShell: this.safety.allowShell,
       ddlMode: this.safety.ddlMode,
+      maskPii: opts.maskPii ?? true,
       hooks: this.hooks,
     });
     this.tools = built.tools;

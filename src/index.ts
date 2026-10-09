@@ -23,3 +23,4 @@ export { buildTools } from './tools/index.js';
 export { saveSession, loadSession, listSessions, deleteSession } from './session/store.js';
 export { appendAudit, auditLogPath, createAuditSink } from './system/audit.js';
 export { estimateWriteImpact, extractWriteTables, hasNoWhere } from './system/impact.js';
+export { classifyPiiColumn, isSensitiveColumn, maskResult, maskValue } from './system/pii.js';

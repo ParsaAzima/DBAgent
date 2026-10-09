@@ -15,6 +15,7 @@ import type {
 } from '../core/types.js';
 import { assertDdlAllowed, isWriteStatement, singleStatement, enforceLimit } from './guard.js';
 import { buildSchemaGraph, cloneRelations, cloneTables, findCachedTable } from './schema-cache.js';
+import { isSensitiveColumn } from '../system/pii.js';
 
 export class SqliteDriver implements DatabaseDriver {
   readonly dialect = 'sqlite' as const;
@@ -209,13 +210,17 @@ export class SqliteDriver implements DatabaseDriver {
 
   private columnsOf(table: string) {
     const cols = this.db.prepare(`PRAGMA table_info("${escapeIdent(table)}")`).all() as any[];
-    return cols.map((c) => ({
-      name: String(c.name ?? c.name),
-      dataType: String(c.type ?? ''),
-      nullable: !c.notnull,
-      isPrimaryKey: !!c.pk,
-      defaultValue: c.dflt_value ?? null,
-    }));
+    return cols.map((c) => {
+      const name = String(c.name ?? c.name);
+      return {
+        name,
+        dataType: String(c.type ?? ''),
+        nullable: !c.notnull,
+        isPrimaryKey: !!c.pk,
+        defaultValue: c.dflt_value ?? null,
+        sensitive: isSensitiveColumn(name) || undefined,
+      };
+    });
   }
 
   private executeRead(sql: string): QueryResult {

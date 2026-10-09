@@ -22,6 +22,7 @@ import {
   enforceLimit,
 } from './guard.js';
 import { buildSchemaGraph, cloneRelations, cloneTables, findCachedTable } from './schema-cache.js';
+import { isSensitiveColumn } from '../system/pii.js';
 
 export class PostgresDriver implements DatabaseDriver {
   readonly dialect = 'postgres' as const;
@@ -262,6 +263,7 @@ export class PostgresDriver implements DatabaseDriver {
       nullable: r.nullable,
       isPrimaryKey: r.is_primary,
       defaultValue: r.default_value ?? null,
+      sensitive: isSensitiveColumn(String(r.name)) || undefined,
     }));
   }
 
