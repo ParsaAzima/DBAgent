@@ -9,9 +9,18 @@ dist/
 *.db
 *.sqlite
 *.sqlite3
-.freebuff/
+
 
 # runtime outputs (exports, backups) and scratch verification scripts
 dbagent-out/
 tmp-*
 *.bak
+
+# IDEs and editors
+.vscode/
+.idea/
+
+# Ai
+.claude/
+.codex
+.freebuff/
