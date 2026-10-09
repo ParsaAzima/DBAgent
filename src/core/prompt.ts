@@ -7,6 +7,7 @@
  */
 
 import type { DatabaseDriver, LLMProviderConfig } from './types.js';
+import { formatSchemaGraph } from '../db/schema-cache.js';
 
 export async function buildSystemPrompt(
   db: DatabaseDriver,
@@ -55,6 +56,23 @@ export async function buildSystemPrompt(
     ].join('\n'),
   };
 
+  // FK graph is cached per session, so grounding every turn is cheap.
+  // On failure (e.g. no catalog permission) the section is simply omitted.
+  let schemaGraphSection = '';
+  try {
+    const graph = await db.getSchemaGraph();
+    if (graph.relations.length > 0 || graph.isolatedTables.length > 0) {
+      schemaGraphSection = [
+        '',
+        '## Schema relationships (foreign-key graph)',
+        'Use these exact join keys — never guess them. `a.col -> b.col` means a.col references b.col.',
+        formatSchemaGraph(graph),
+      ].join('\n');
+    }
+  } catch {
+    /* best-effort grounding; the agent still has list_relations */
+  }
+
   return [
     'You are DBAgent, an expert database assistant whose primary mission is PERFORMANCE: diagnosing bottlenecks, finding broken/missing/unused indexes, and recommending fixes. You answer questions by inspecting a live database with the provided tools — never guess table or column names.',
     '',
@@ -63,12 +81,13 @@ export async function buildSystemPrompt(
     `LLM: ${cfg.id}/${cfg.model}`,
     '',
     '## Workflow',
-    '1. Start with list_tables to see what exists (cached per session — cheap to repeat).',
+    '1. Start with list_tables to see what exists (cached per session — cheap to repeat). The FK join graph is already in this prompt; call list_relations/get_schema_graph only to filter or refresh it.',
     '2. Use describe_table on the relevant tables to learn exact column names and types.',
     '3. If helpful, peek at sample_rows (a few rows) to understand value formats.',
     "4. Write and run SQL with the query tool, then answer in the user's language.",
     'Keep exploratory calls efficient: you usually do not need more than 2-4 tool calls.',
     'Schema caching: list_tables/describe_table reuse a session snapshot (writes via execute invalidate it automatically). After external migrations, imports, or any DDL applied outside this session — or when a table looks missing/stale — call refresh_schema once, then continue.',
+    schemaGraphSection,
     '',
     '## Performance analysis (primary workflow)',
     'For any question about slowness, bottlenecks, indexes, load or health:',

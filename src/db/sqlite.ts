@@ -6,12 +6,14 @@ import { createRequire } from 'node:module';
 import type {
   DatabaseConnection,
   DatabaseDriver,
+  ForeignKeyRelation,
   QueryResult,
   SafetyConfig,
+  SchemaGraph,
   TableInfo,
 } from '../core/types.js';
 import { isWriteStatement, singleStatement, enforceLimit } from './guard.js';
-import { cloneTables, findCachedTable } from './schema-cache.js';
+import { buildSchemaGraph, cloneRelations, cloneTables, findCachedTable } from './schema-cache.js';
 
 export class SqliteDriver implements DatabaseDriver {
   readonly dialect = 'sqlite' as const;
@@ -20,6 +22,8 @@ export class SqliteDriver implements DatabaseDriver {
   private readonly safety: Required<SafetyConfig>;
   /** Session snapshot of listTables(); cleared on writes and refreshSchema(). */
   private tablesCache: TableInfo[] | null = null;
+  /** Session snapshot of listRelations(); invalidated together with tablesCache. */
+  private relationsCache: ForeignKeyRelation[] | null = null;
 
   constructor(conn: DatabaseConnection, safety: SafetyConfig = {}) {
     this.safety = {
@@ -99,6 +103,47 @@ export class SqliteDriver implements DatabaseDriver {
   /** Drop the cached schema snapshot; the next listTables() re-reads sqlite_master. */
   async refreshSchema(): Promise<void> {
     this.tablesCache = null;
+    this.relationsCache = null;
+  }
+
+  async listRelations(): Promise<ForeignKeyRelation[]> {
+    if (this.relationsCache) return cloneRelations(this.relationsCache);
+    const tables = this.db
+      .prepare(
+        `SELECT name FROM sqlite_master
+          WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
+          ORDER BY name`,
+      )
+      .all() as { name: string }[];
+    const out: ForeignKeyRelation[] = [];
+    for (const t of tables) {
+      const fks = this.db.prepare(`PRAGMA foreign_key_list("${escapeIdent(t.name)}")`).all() as {
+        table: string;
+        from: string;
+        to: string;
+        on_update: string;
+        on_delete: string;
+      }[];
+      for (const fk of fks) {
+        out.push({
+          fromTable: t.name,
+          fromColumn: String(fk.from),
+          toTable: String(fk.table),
+          toColumn: String(fk.to),
+          onDelete: String(fk.on_delete ?? ''),
+          onUpdate: String(fk.on_update ?? ''),
+        });
+      }
+    }
+    out.sort((a, b) =>
+      `${a.fromTable}.${a.fromColumn}`.localeCompare(`${b.fromTable}.${b.fromColumn}`),
+    );
+    this.relationsCache = cloneRelations(out);
+    return out;
+  }
+
+  async getSchemaGraph(): Promise<SchemaGraph> {
+    return buildSchemaGraph(await this.listTables(), await this.listRelations());
   }
 
   async sampleRows(name: string, limit: number): Promise<QueryResult> {
@@ -118,6 +163,7 @@ export class SqliteDriver implements DatabaseDriver {
       const info = this.db.prepare(stmt).run();
       // Row counts and catalog entries may be stale after a write.
       this.tablesCache = null;
+      this.relationsCache = null;
       return {
         columns: ['rowsAffected'],
         rows: [[Number(info.changes ?? 0)]],

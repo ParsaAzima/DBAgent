@@ -82,6 +82,8 @@ Database URLs: `sqlite://./app.db` · `postgres://user:pass@host:5432/db?ssl=tru
 | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `list_tables`        | Tables + views with row-count estimates (cached per session)                                                                                                                                        |
 | `refresh_schema`     | Clear the schema cache and re-read the live catalog (use after external DDL/migrations)                                                                                                             |
+| `list_relations`     | Foreign-key edges (optional `table` filter) — join keys for correct JOINs                                                                                                                           |
+| `get_schema_graph`   | Full FK graph: all edges plus tables with no edges                                                                                                                                                  |
 | `describe_table`     | Columns, types, nullability, primary keys, defaults                                                                                                                                                 |
 | `sample_rows`        | Peek at the first N rows of a table                                                                                                                                                                 |
 | `query`              | Run read-only SQL (LIMIT auto-enforced)                                                                                                                                                             |
@@ -225,7 +227,7 @@ scripts/      demo seeding + smoke/e2e test suites
 
 ## Roadmap
 
-- [ ] Foreign-key relationship discovery → schema graph in the prompt
+- [x] Foreign-key relationship discovery → schema graph in the prompt
 - [ ] Embedding-based schema search for very large schemas (100+ tables)
 - [ ] Web UI on the same core (REST API)
 - [ ] MongoDB support

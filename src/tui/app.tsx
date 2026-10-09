@@ -256,7 +256,20 @@ export function Tui(props: TuiProps): React.ReactElement {
                   .join('\n'),
             )
             .join('\n');
-          push({ role: 'info', text: lines || '(no tables)' });
+          let text = lines || '(no tables)';
+          try {
+            const relations = await props.db.listRelations();
+            if (relations.length > 0) {
+              text +=
+                '\nRelations:\n' +
+                relations
+                  .map((r) => `  ${r.fromTable}.${r.fromColumn} → ${r.toTable}.${r.toColumn}`)
+                  .join('\n');
+            }
+          } catch {
+            /* FK catalog may be unreadable; tables above are enough */
+          }
+          push({ role: 'info', text });
         } catch (err) {
           push({ role: 'error', text: (err as Error).message });
         }

@@ -6,8 +6,10 @@
 import type {
   DatabaseConnection,
   DatabaseDriver,
+  ForeignKeyRelation,
   QueryResult,
   SafetyConfig,
+  SchemaGraph,
   TableInfo,
   ColumnInfo,
 } from '../core/types.js';
@@ -18,7 +20,7 @@ import {
   singleStatement,
   enforceLimit,
 } from './guard.js';
-import { cloneTables, findCachedTable } from './schema-cache.js';
+import { buildSchemaGraph, cloneRelations, cloneTables, findCachedTable } from './schema-cache.js';
 
 /**
  * T-SQL statements that can change server/database state even though they do
@@ -36,6 +38,8 @@ export class SqlServerDriver implements DatabaseDriver {
   private pool: any;
   /** Session snapshot of listTables(); cleared on writes and refreshSchema(). */
   private tablesCache: TableInfo[] | null = null;
+  /** Session snapshot of listRelations(); invalidated together with tablesCache. */
+  private relationsCache: ForeignKeyRelation[] | null = null;
 
   constructor(conn: DatabaseConnection, safety: SafetyConfig = {}) {
     this.connSpec = conn;
@@ -162,6 +166,7 @@ export class SqlServerDriver implements DatabaseDriver {
     const res = await pool.request().query(stmt);
     // Row counts and catalog entries may be stale after a write.
     this.tablesCache = null;
+    this.relationsCache = null;
     // EXEC/MERGE etc. may return a result set — show it instead of a bare count.
     if (res.recordset && (res.recordset.columns || res.recordset.length > 0)) {
       return this.recordsetToResult(res, start);
@@ -182,6 +187,45 @@ export class SqlServerDriver implements DatabaseDriver {
   /** Drop the cached schema snapshot; the next listTables() re-reads sys.objects. */
   async refreshSchema(): Promise<void> {
     this.tablesCache = null;
+    this.relationsCache = null;
+  }
+
+  async listRelations(): Promise<ForeignKeyRelation[]> {
+    if (this.relationsCache) return cloneRelations(this.relationsCache);
+    const pool = await this.ensurePool();
+    const res = await pool.request().query(
+      `SELECT fk.name AS [name],
+              SCHEMA_NAME(t.schema_id) AS [from_schema], t.name AS [from_table],
+              c.name AS [from_column],
+              SCHEMA_NAME(rt.schema_id) AS [to_schema], rt.name AS [to_table],
+              rc.name AS [to_column],
+              fk.delete_referential_action_desc AS [on_delete],
+              fk.update_referential_action_desc AS [on_update]
+       FROM sys.foreign_keys fk
+       JOIN sys.foreign_key_columns fkc ON fkc.constraint_object_id = fk.object_id
+       JOIN sys.tables t ON t.object_id = fk.parent_object_id
+       JOIN sys.columns c ON c.object_id = t.object_id AND c.column_id = fkc.parent_column_id
+       JOIN sys.tables rt ON rt.object_id = fk.referenced_object_id
+       JOIN sys.columns rc ON rc.object_id = rt.object_id AND rc.column_id = fkc.referenced_column_id
+       ORDER BY SCHEMA_NAME(t.schema_id), t.name, fkc.constraint_column_id`,
+    );
+    const out: ForeignKeyRelation[] = (res.recordset ?? []).map((r: any) => ({
+      name: String(r.name),
+      fromSchema: String(r.from_schema),
+      fromTable: String(r.from_table),
+      fromColumn: String(r.from_column),
+      toSchema: String(r.to_schema),
+      toTable: String(r.to_table),
+      toColumn: String(r.to_column),
+      onDelete: String(r.on_delete ?? ''),
+      onUpdate: String(r.on_update ?? ''),
+    }));
+    this.relationsCache = cloneRelations(out);
+    return out;
+  }
+
+  async getSchemaGraph(): Promise<SchemaGraph> {
+    return buildSchemaGraph(await this.listTables(), await this.listRelations());
   }
 
   private async columnsOf(table: string, schema: string | null): Promise<ColumnInfo[]> {

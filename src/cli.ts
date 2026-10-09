@@ -214,6 +214,19 @@ program
               )
               .join('\n') || '(no tables)',
           );
+          try {
+            const relations = await db.listRelations();
+            if (relations.length > 0) {
+              console.log(
+                'Relations:\n' +
+                  relations
+                    .map((r) => `  ${r.fromTable}.${r.fromColumn} -> ${r.toTable}.${r.toColumn}`)
+                    .join('\n'),
+              );
+            }
+          } catch {
+            /* FK catalog may be unreadable; tables above are enough */
+          }
         } catch (err) {
           console.error(`✗ ${(err as Error).message}`);
         }

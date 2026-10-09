@@ -42,6 +42,28 @@ export function buildTools(db: DatabaseDriver, opts: BuildToolsOptions = {}): Bu
       parameters: { type: 'object', description: 'No arguments.', properties: {}, required: [] },
     },
     {
+      name: 'list_relations',
+      description:
+        'List foreign-key relationships (cached per session): which columns reference which tables. Use before writing JOINs — never guess join keys. Optional "table" narrows to edges touching that table.',
+      parameters: {
+        type: 'object',
+        description: 'Arguments for list_relations.',
+        properties: {
+          table: {
+            type: 'string',
+            description: 'Optional table name (bare or schema-qualified) to filter relationships.',
+          },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'get_schema_graph',
+      description:
+        'Full join graph: all foreign-key edges plus the tables with no edges. The compact map for multi-table questions.',
+      parameters: { type: 'object', description: 'No arguments.', properties: {}, required: [] },
+    },
+    {
       name: 'describe_table',
       description:
         'Get detailed column metadata for one table or view: names, data types, nullability, primary keys, defaults.',
@@ -147,6 +169,23 @@ export function buildTools(db: DatabaseDriver, opts: BuildToolsOptions = {}): Bu
         return db.listTables();
       },
     ],
+    [
+      'list_relations',
+      async (args) => {
+        const table = String(args.table ?? '').trim();
+        const relations = await db.listRelations();
+        if (!table) return relations;
+        const want = table.replace(/["`[\]]/g, '').toLowerCase();
+        return relations.filter(
+          (r) =>
+            r.fromTable.toLowerCase() === want ||
+            r.toTable.toLowerCase() === want ||
+            `${r.fromSchema ?? ''}.${r.fromTable}`.toLowerCase() === want ||
+            `${r.toSchema ?? ''}.${r.toTable}`.toLowerCase() === want,
+        );
+      },
+    ],
+    ['get_schema_graph', async () => db.getSchemaGraph()],
     [
       'describe_table',
       async (args) => {

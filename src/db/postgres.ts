@@ -6,13 +6,15 @@ import { createRequire } from 'node:module';
 import type {
   DatabaseConnection,
   DatabaseDriver,
+  ForeignKeyRelation,
   QueryResult,
   SafetyConfig,
+  SchemaGraph,
   TableInfo,
   ColumnInfo,
 } from '../core/types.js';
 import { classifyStatement, isWriteStatement, singleStatement, enforceLimit } from './guard.js';
-import { cloneTables, findCachedTable } from './schema-cache.js';
+import { buildSchemaGraph, cloneRelations, cloneTables, findCachedTable } from './schema-cache.js';
 
 export class PostgresDriver implements DatabaseDriver {
   readonly dialect = 'postgres' as const;
@@ -20,6 +22,8 @@ export class PostgresDriver implements DatabaseDriver {
   private readonly safety: Required<SafetyConfig>;
   /** Session snapshot of listTables(); cleared on writes and refreshSchema(). */
   private tablesCache: TableInfo[] | null = null;
+  /** Session snapshot of listRelations(); invalidated together with tablesCache. */
+  private relationsCache: ForeignKeyRelation[] | null = null;
 
   constructor(conn: DatabaseConnection, safety: SafetyConfig = {}) {
     this.safety = {
@@ -124,6 +128,7 @@ export class PostgresDriver implements DatabaseDriver {
     const res = await this.pool.query(stmt);
     // Row counts and catalog entries may be stale after a write.
     this.tablesCache = null;
+    this.relationsCache = null;
     return {
       columns: res.fields?.map((f: any) => f.name) ?? ['status'],
       rows: res.rows?.length
@@ -141,6 +146,47 @@ export class PostgresDriver implements DatabaseDriver {
   /** Drop the cached schema snapshot; the next listTables() re-reads the catalog. */
   async refreshSchema(): Promise<void> {
     this.tablesCache = null;
+    this.relationsCache = null;
+  }
+
+  async listRelations(): Promise<ForeignKeyRelation[]> {
+    if (this.relationsCache) return cloneRelations(this.relationsCache);
+    const { rows } = await this.pool.query(
+      `SELECT tc.constraint_name AS name,
+              tc.table_schema AS from_schema, tc.table_name AS from_table,
+              kcu.column_name AS from_column,
+              ccu.table_schema AS to_schema, ccu.table_name AS to_table,
+              ccu.column_name AS to_column,
+              rc.delete_rule AS on_delete, rc.update_rule AS on_update
+       FROM information_schema.table_constraints tc
+       JOIN information_schema.key_column_usage kcu
+         ON kcu.constraint_name = tc.constraint_name
+        AND kcu.constraint_schema = tc.table_schema
+       JOIN information_schema.constraint_column_usage ccu
+         ON ccu.constraint_name = tc.constraint_name
+       JOIN information_schema.referential_constraints rc
+         ON rc.constraint_name = tc.constraint_name
+        AND rc.constraint_schema = tc.table_schema
+       WHERE tc.constraint_type = 'FOREIGN KEY'
+       ORDER BY tc.table_schema, tc.table_name, kcu.ordinal_position`,
+    );
+    const out: ForeignKeyRelation[] = rows.map((r: any) => ({
+      name: String(r.name),
+      fromSchema: String(r.from_schema),
+      fromTable: String(r.from_table),
+      fromColumn: String(r.from_column),
+      toSchema: String(r.to_schema),
+      toTable: String(r.to_table),
+      toColumn: String(r.to_column),
+      onDelete: String(r.on_delete ?? ''),
+      onUpdate: String(r.on_update ?? ''),
+    }));
+    this.relationsCache = cloneRelations(out);
+    return out;
+  }
+
+  async getSchemaGraph(): Promise<SchemaGraph> {
+    return buildSchemaGraph(await this.listTables(), await this.listRelations());
   }
 
   private async columnsOf(schema: string | null, table: string): Promise<ColumnInfo[]> {

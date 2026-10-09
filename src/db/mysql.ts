@@ -5,13 +5,15 @@
 import type {
   DatabaseConnection,
   DatabaseDriver,
+  ForeignKeyRelation,
   QueryResult,
   SafetyConfig,
+  SchemaGraph,
   TableInfo,
   ColumnInfo,
 } from '../core/types.js';
 import { classifyStatement, isWriteStatement, singleStatement, enforceLimit } from './guard.js';
-import { cloneTables, findCachedTable } from './schema-cache.js';
+import { buildSchemaGraph, cloneRelations, cloneTables, findCachedTable } from './schema-cache.js';
 
 export class MysqlDriver implements DatabaseDriver {
   readonly dialect = 'mysql' as const;
@@ -21,6 +23,8 @@ export class MysqlDriver implements DatabaseDriver {
   private conn: any;
   /** Session snapshot of listTables(); cleared on writes and refreshSchema(). */
   private tablesCache: TableInfo[] | null = null;
+  /** Session snapshot of listRelations(); invalidated together with tablesCache. */
+  private relationsCache: ForeignKeyRelation[] | null = null;
 
   constructor(conn: DatabaseConnection, safety: SafetyConfig = {}) {
     this.connSpec = conn;
@@ -118,6 +122,7 @@ export class MysqlDriver implements DatabaseDriver {
     const [res]: any = await conn.query(stmt);
     // Row counts and catalog entries may be stale after a write.
     this.tablesCache = null;
+    this.relationsCache = null;
     const affected = res?.affectedRows ?? res?.changedRows ?? 0;
     return {
       columns: ['rowsAffected'],
@@ -134,6 +139,45 @@ export class MysqlDriver implements DatabaseDriver {
   /** Drop the cached schema snapshot; the next listTables() re-reads information_schema. */
   async refreshSchema(): Promise<void> {
     this.tablesCache = null;
+    this.relationsCache = null;
+  }
+
+  async listRelations(): Promise<ForeignKeyRelation[]> {
+    if (this.relationsCache) return cloneRelations(this.relationsCache);
+    const conn = await this.ensureConnection();
+    const [rows] = await conn.query(
+      `SELECT k.CONSTRAINT_NAME AS name,
+              k.TABLE_SCHEMA AS from_schema, k.TABLE_NAME AS from_table,
+              k.COLUMN_NAME AS from_column,
+              k.REFERENCED_TABLE_SCHEMA AS to_schema, k.REFERENCED_TABLE_NAME AS to_table,
+              k.REFERENCED_COLUMN_NAME AS to_column,
+              r.DELETE_RULE AS on_delete, r.UPDATE_RULE AS on_update
+       FROM information_schema.KEY_COLUMN_USAGE k
+       JOIN information_schema.REFERENTIAL_CONSTRAINTS r
+         ON r.CONSTRAINT_SCHEMA = k.CONSTRAINT_SCHEMA
+        AND r.CONSTRAINT_NAME = k.CONSTRAINT_NAME
+        AND r.TABLE_NAME = k.TABLE_NAME
+       WHERE k.TABLE_SCHEMA = ? AND k.REFERENCED_TABLE_NAME IS NOT NULL
+       ORDER BY k.TABLE_NAME, k.ORDINAL_POSITION`,
+      [this.database],
+    );
+    const out: ForeignKeyRelation[] = (rows as any[]).map((r) => ({
+      name: String(r.name ?? r.CONSTRAINT_NAME),
+      fromSchema: String(r.from_schema ?? this.database),
+      fromTable: String(r.from_table),
+      fromColumn: String(r.from_column),
+      toSchema: String(r.to_schema ?? ''),
+      toTable: String(r.to_table),
+      toColumn: String(r.to_column),
+      onDelete: String(r.on_delete ?? ''),
+      onUpdate: String(r.on_update ?? ''),
+    }));
+    this.relationsCache = cloneRelations(out);
+    return out;
+  }
+
+  async getSchemaGraph(): Promise<SchemaGraph> {
+    return buildSchemaGraph(await this.listTables(), await this.listRelations());
   }
 
   private async columnsOf(table: string): Promise<ColumnInfo[]> {

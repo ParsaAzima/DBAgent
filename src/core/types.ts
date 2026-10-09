@@ -163,6 +163,27 @@ export interface TableInfo {
   columns: ColumnInfo[];
 }
 
+/** One foreign-key edge between two tables. */
+export interface ForeignKeyRelation {
+  /** Constraint name when the dialect exposes one (SQLite has none). */
+  name?: string;
+  fromSchema?: string;
+  fromTable: string;
+  fromColumn: string;
+  toSchema?: string;
+  toTable: string;
+  toColumn: string;
+  onDelete?: string;
+  onUpdate?: string;
+}
+
+/** FK graph over the database: edges plus tables with no edges. */
+export interface SchemaGraph {
+  relations: ForeignKeyRelation[];
+  /** Sorted table names (schema-qualified when applicable) with no FK edges. */
+  isolatedTables: string[];
+}
+
 /** Result of executing a statement through a DatabaseDriver. */
 export interface QueryResult {
   columns: string[];
@@ -193,6 +214,13 @@ export interface DatabaseDriver {
    */
   listTables(): Promise<TableInfo[]>;
   describeTable(name: string): Promise<TableInfo | null>;
+  /**
+   * Foreign-key edges across the database. Cached per session like
+   * listTables(); writes and refreshSchema() invalidate it.
+   */
+  listRelations(): Promise<ForeignKeyRelation[]>;
+  /** FK edges plus the tables that have none. */
+  getSchemaGraph(): Promise<SchemaGraph>;
   /** Peek at table contents; always a read-only SELECT with LIMIT. */
   sampleRows(name: string, limit: number): Promise<QueryResult>;
   /** Execute a guarded SQL statement. */
