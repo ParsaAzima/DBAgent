@@ -15,6 +15,7 @@ import type {
   ColumnInfo,
 } from '../core/types.js';
 import {
+  assertDdlAllowed,
   classifyStatement,
   isWriteStatement,
   normalizeSql,
@@ -46,6 +47,7 @@ export class SqlServerDriver implements DatabaseDriver {
     this.connSpec = conn;
     this.safety = {
       allowWrites: safety.allowWrites ?? false,
+      ddlMode: safety.ddlMode ?? 'off',
       maxRows: safety.maxRows ?? 100,
       maxStatements: safety.maxStatements ?? 1,
     };
@@ -154,6 +156,7 @@ export class SqlServerDriver implements DatabaseDriver {
   async execute(sql: string): Promise<QueryResult> {
     const pool = await this.ensurePool();
     const stmt = singleStatement(sql, this.safety.maxStatements);
+    assertDdlAllowed(stmt, this.safety);
     const kind = classifyStatement(stmt);
     const gated = isWriteStatement(stmt) || TSQL_GATED.test(normalizeSql(stmt));
     if (gated && !this.safety.allowWrites) {

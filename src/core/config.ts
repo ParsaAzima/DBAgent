@@ -9,7 +9,7 @@
 
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import type { LLMProviderConfig, LLMProviderId } from './types.js';
+import type { DdlMode, LLMProviderConfig, LLMProviderId } from './types.js';
 
 /** Built-in model defaults; overridable via CLI flag / env. */
 export const DEFAULT_MODELS: Record<LLMProviderId, string> = {
@@ -31,6 +31,8 @@ export interface ResolvedConfig {
   allowShell: boolean;
   /** Auto-confirm write prompts (non-interactive use). Default false. */
   assumeYes: boolean;
+  /** CREATE INDEX gate: off | dry-run (analyze) | on (apply + confirm). */
+  ddlMode: DdlMode;
   maxRows: number;
   maxRounds: number;
   timeoutMs: number;
@@ -75,6 +77,7 @@ export function resolveConfig(opts: {
   allowSystemFlag?: boolean;
   allowShellFlag?: boolean;
   assumeYesFlag?: boolean;
+  ddlModeFlag?: string | boolean;
   maxRowsFlag?: number;
 }): ResolvedConfig {
   const provider = parseProvider(opts.providerFlag ?? process.env.DBAGENT_PROVIDER) ?? 'openai';
@@ -104,6 +107,7 @@ export function resolveConfig(opts: {
     allowSystem: opts.allowSystemFlag ?? bool(process.env.DBAGENT_ALLOW_SYSTEM, false),
     allowShell: opts.allowShellFlag ?? bool(process.env.DBAGENT_ALLOW_SHELL, false),
     assumeYes: opts.assumeYesFlag ?? bool(process.env.DBAGENT_ASSUME_YES, false),
+    ddlMode: parseDdlMode(opts.ddlModeFlag ?? process.env.DBAGENT_ALLOW_DDL),
     maxRows: opts.maxRowsFlag ?? num(process.env.DBAGENT_MAX_ROWS, 100),
     maxRounds: num(process.env.DBAGENT_MAX_ROUNDS, 12),
     timeoutMs: num(process.env.DBAGENT_TIMEOUT_MS, 120_000),
@@ -148,6 +152,22 @@ function num(value: string | undefined, fallback: number): number {
 function bool(value: string | undefined, fallback: boolean): boolean {
   if (value === undefined) return fallback;
   return ['1', 'true', 'yes', 'on'].includes(value.toLowerCase());
+}
+
+/**
+ * Parse --allow-ddl / DBAGENT_ALLOW_DDL. Bare --allow-ddl means dry-run
+ * (safe default); 'on' enables apply_ddl. Anything else fails fast.
+ */
+export function parseDdlMode(value: string | boolean | undefined): DdlMode {
+  if (value === undefined || value === false) return 'off';
+  if (value === true) return 'dry-run';
+  const v = value.toLowerCase().trim();
+  if (v === 'off' || v === '' || v === '0' || v === 'false' || v === 'no') return 'off';
+  if (v === 'dry-run' || v === 'dryrun' || v === '1' || v === 'true') return 'dry-run';
+  if (v === 'on' || v === 'yes') return 'on';
+  throw new Error(
+    `--allow-ddl must be dry-run or on (got "${value}"). Bare --allow-ddl means dry-run.`,
+  );
 }
 
 export { PROVIDER_IDS };

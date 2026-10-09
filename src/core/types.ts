@@ -210,14 +210,31 @@ export interface QueryResult {
   durationMs: number;
 }
 
+/** DDL modes for CREATE INDEX: off (default) < dry-run (analyze only) < on. */
+export type DdlMode = 'off' | 'dry-run' | 'on';
+
 /** Execution guardrails shared by all drivers. */
 export interface SafetyConfig {
   /** Allow INSERT/UPDATE/DELETE/DDL (still never DROP/ALTER). Default false. */
   allowWrites?: boolean;
+  /**
+   * CREATE INDEX gate: 'off' (default) blocks all DDL, 'dry-run' analyzes
+   * via propose_index without executing, 'on' allows apply_ddl after
+   * human confirmation. DROP/ALTER/TRUNCATE/RENAME stay blocked always.
+   */
+  ddlMode?: DdlMode;
   /** Hard LIMIT applied to read queries. Default 100. */
   maxRows?: number;
   /** Max statements the driver may execute per request. Default 1. */
   maxStatements?: number;
+}
+
+/** Resolved permission flags the agent prompt is grounded on. */
+export interface AgentSafetyFlags {
+  allowWrites?: boolean;
+  allowSystem?: boolean;
+  allowShell?: boolean;
+  ddlMode?: DdlMode;
 }
 
 /** Human-approval request before a mutating tool runs. */

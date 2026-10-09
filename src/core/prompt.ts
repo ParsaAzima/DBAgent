@@ -6,20 +6,20 @@
  * allowed, and how to use the tools.
  */
 
-import type { DatabaseDriver, LLMProviderConfig } from './types.js';
+import type { AgentSafetyFlags, DatabaseDriver, DdlMode, LLMProviderConfig } from './types.js';
 import { formatSchemaGraph } from '../db/schema-cache.js';
 
 export async function buildSystemPrompt(
   db: DatabaseDriver,
   cfg: LLMProviderConfig,
+  safety?: AgentSafetyFlags,
 ): Promise<string> {
   const dialect = db.dialect;
-  const writesAllowed =
-    process.env.DBAGENT_ALLOW_WRITES === 'true' || process.env.DBAGENT_ALLOW_WRITES === '1';
-  const systemAllowed =
-    process.env.DBAGENT_ALLOW_SYSTEM === 'true' || process.env.DBAGENT_ALLOW_SYSTEM === '1';
-  const shellAllowed =
-    process.env.DBAGENT_ALLOW_SHELL === 'true' || process.env.DBAGENT_ALLOW_SHELL === '1';
+  const envBool = (v: string | undefined) => v === 'true' || v === '1';
+  const writesAllowed = safety?.allowWrites ?? envBool(process.env.DBAGENT_ALLOW_WRITES);
+  const systemAllowed = safety?.allowSystem ?? envBool(process.env.DBAGENT_ALLOW_SYSTEM);
+  const shellAllowed = safety?.allowShell ?? envBool(process.env.DBAGENT_ALLOW_SHELL);
+  const ddlMode: DdlMode = safety?.ddlMode ?? parseDdlEnv(process.env.DBAGENT_ALLOW_DDL);
 
   const dialectNotes: Record<DatabaseDriver['dialect'], string> = {
     sqlite: [
@@ -96,7 +96,12 @@ export async function buildSystemPrompt(
     '2. For a specific slow query, run explain_query on the EXACT SQL (analyze: true on PostgreSQL for actual row counts).',
     '3. Prioritize: blocking/long queries > broken (disabled/invalid) indexes > missing indexes with high impact > unused/duplicate index cleanup > fragmentation > bloat/vacuum > query rewrites.',
     '4. Back every finding with numbers from the report or plan (impact pct, scans, size, waits) — never speculate.',
-    '5. Recommend only; never execute DDL. DROP/ALTER are always blocked; CREATE INDEX needs write mode. Always present exact SQL (CREATE INDEX / DROP INDEX / REINDEX / REBUILD) plus trade-offs (write overhead, disk, maintenance windows) and let the operator decide.',
+    '5. ' +
+      (ddlMode === 'on'
+        ? 'You may APPLY a recommended CREATE INDEX with apply_ddl — it pauses for human y/n confirmation like execute. DROP/ALTER/TRUNCATE stay blocked; only CREATE INDEX runs.'
+        : ddlMode === 'dry-run'
+          ? 'Analyze CREATE INDEX proposals with propose_index (validates + EXPLAINs, never executes). Nothing is executed in this mode — present the exact SQL plus trade-offs (write overhead, disk, maintenance windows) and let the operator decide.'
+          : 'Recommend only; never execute DDL. DDL is disabled in this session. Always present exact SQL (CREATE INDEX / DROP INDEX / REINDEX / REBUILD) plus trade-offs (write overhead, disk, maintenance windows) and let the operator decide.'),
     '6. Watch for false positives: verify an "unused" index is not unique, not FK/backing a constraint, and that the stats window matches the workload before recommending removal.',
     '',
     '## SQL rules',
@@ -106,7 +111,7 @@ export async function buildSystemPrompt(
       '; the guardrail also enforces one.',
     '- One statement per query call.',
     writesAllowed
-      ? '- Writes (INSERT/UPDATE/DELETE) are ENABLED by the operator, but every execute call pauses for explicit human confirmation (the operator sees the SQL plus an impact estimate and answers y/n). DROP/ALTER/TRUNCATE are always blocked. Every statement is audit-logged.'
+      ? '- Writes (INSERT/UPDATE/DELETE) are ENABLED by the operator, but every execute call pauses for explicit human confirmation (the operator sees the SQL plus an impact estimate and answers y/n). DROP/ALTER/TRUNCATE/RENAME are always blocked, in any mode. Every statement is audit-logged.'
       : '- Read-only mode: never attempt to modify data. If the user asks for changes, explain that write mode is disabled.',
     '- Never embed API keys, passwords or other secrets in SQL.',
     systemAllowed
@@ -145,4 +150,12 @@ export async function buildSystemPrompt(
     '- Results are often already rendered by the UI; add a table only when the numbers matter, and mention row counts in text.',
     '- Be concise: answer first, details after. If the database lacks what the user needs, say so instead of inventing data.',
   ].join('\n');
+}
+
+/** Parse DBAGENT_ALLOW_DDL env values (off|dry-run|on, with 1/true → dry-run). */
+function parseDdlEnv(value: string | undefined): DdlMode {
+  const v = (value ?? '').toLowerCase().trim();
+  if (v === 'on' || v === 'yes') return 'on';
+  if (v === 'dry-run' || v === 'dryrun' || v === '1' || v === 'true') return 'dry-run';
+  return 'off';
 }

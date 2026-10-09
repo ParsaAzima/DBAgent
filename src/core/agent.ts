@@ -12,7 +12,9 @@
 import type {
   AgentMessage,
   AgentHooks,
+  AgentSafetyFlags,
   DatabaseDriver,
+  DdlMode,
   LLMResponse,
   LLMProviderConfig,
   ToolSpec,
@@ -67,6 +69,8 @@ export class Agent {
    * React state), and tool handlers read them at call time.
    */
   readonly hooks: AgentHooks;
+  /** Resolved permission flags; also grounds the system prompt. */
+  private readonly safety: Required<AgentSafetyFlags>;
 
   constructor(
     private readonly llm: LLMAdapter,
@@ -77,14 +81,22 @@ export class Agent {
       allowSystem?: boolean;
       allowWrites?: boolean;
       allowShell?: boolean;
+      ddlMode?: DdlMode;
       hooks?: AgentHooks;
     } = {},
   ) {
     this.hooks = opts.hooks ?? {};
-    const built = buildTools(db, {
+    this.safety = {
       allowSystem: opts.allowSystem ?? false,
       allowWrites: opts.allowWrites ?? false,
       allowShell: opts.allowShell ?? false,
+      ddlMode: opts.ddlMode ?? 'off',
+    };
+    const built = buildTools(db, {
+      allowSystem: this.safety.allowSystem,
+      allowWrites: this.safety.allowWrites,
+      allowShell: this.safety.allowShell,
+      ddlMode: this.safety.ddlMode,
       hooks: this.hooks,
     });
     this.tools = built.tools;
@@ -106,7 +118,7 @@ export class Agent {
 
   /** Run one full user turn through the tool loop. */
   async runTurn(userMessage: string, options: AgentTurnOptions = {}): Promise<AgentTurnResult> {
-    const system = await buildSystemPrompt(this.db, this.providerConfig);
+    const system = await buildSystemPrompt(this.db, this.providerConfig, this.safety);
     const deadline = options.timeoutMs ? Date.now() + options.timeoutMs : undefined;
     this.history.push({ role: 'user', content: userMessage });
 
@@ -180,7 +192,7 @@ export class Agent {
     userMessage: string,
     options: AgentTurnStreamOptions = {},
   ): Promise<AgentTurnResult> {
-    const system = await buildSystemPrompt(this.db, this.providerConfig);
+    const system = await buildSystemPrompt(this.db, this.providerConfig, this.safety);
     const deadline = options.timeoutMs ? Date.now() + options.timeoutMs : undefined;
     this.history.push({ role: 'user', content: userMessage });
 

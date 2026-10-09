@@ -109,7 +109,15 @@ function check(name, cond, detail = '') {
 
 // ── 5. Guard unit checks ────────────────────────────────────────────────────
 {
-  const { enforceLimit, singleStatement, classifyStatement } = await import('../dist/db/guard.js');
+  const {
+    enforceLimit,
+    singleStatement,
+    classifyStatement,
+    isDestructiveDdl,
+    isCreateIndex,
+    parseCreateIndex,
+    assertDdlAllowed,
+  } = await import('../dist/db/guard.js');
   const withLimit = enforceLimit('SELECT * FROM t', 10, 'sqlite');
   check('LIMIT appended to SELECT', /LIMIT 10\s*$/i.test(withLimit), withLimit);
   const wrapped = enforceLimit('WITH x AS (SELECT 1 AS a) SELECT a FROM x', 5, 'sqlite');
@@ -131,6 +139,34 @@ function check(name, cond, detail = '') {
   check('chained statements rejected', threw);
   check('classify DELETE as write', classifyStatement('DELETE FROM t') === 'write');
   check('classify DROP as ddl', classifyStatement('DROP TABLE t') === 'ddl');
+  check('DROP is destructive', isDestructiveDdl('DROP TABLE t'));
+  check('ALTER is destructive', isDestructiveDdl('ALTER TABLE t ADD COLUMN x TEXT'));
+  check('CREATE INDEX is not destructive', !isDestructiveDdl('CREATE INDEX i ON t (a)'));
+  check('CREATE INDEX detected', isCreateIndex('CREATE UNIQUE INDEX i ON t (a)'));
+  check('CREATE TABLE is not CREATE INDEX', !isCreateIndex('CREATE TABLE t (a TEXT)'));
+  const parsed = parseCreateIndex('CREATE INDEX idx_o_c ON orders (customer_id)');
+  check(
+    'CREATE INDEX parsed',
+    parsed?.table === 'orders' && parsed?.columns.join(',') === 'customer_id',
+    JSON.stringify(parsed),
+  );
+  let ddlThrew = false;
+  try {
+    assertDdlAllowed('DROP TABLE t', { allowWrites: true, ddlMode: 'on' });
+  } catch {
+    ddlThrew = true;
+  }
+  check('destructive DDL refused even when fully on', ddlThrew);
+  ddlThrew = false;
+  try {
+    assertDdlAllowed('CREATE INDEX i ON t (a)', { allowWrites: true, ddlMode: 'dry-run' });
+  } catch {
+    ddlThrew = true;
+  }
+  check('CREATE INDEX refused in dry-run', ddlThrew);
+  // on + write mode passes the gate (execution itself is confirm-gated in tools)
+  assertDdlAllowed('CREATE INDEX i ON t (a)', { allowWrites: true, ddlMode: 'on' });
+  check('CREATE INDEX passes when on', true);
 }
 
 await db.close();

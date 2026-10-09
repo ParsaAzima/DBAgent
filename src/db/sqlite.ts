@@ -13,7 +13,7 @@ import type {
   SchemaGraph,
   TableInfo,
 } from '../core/types.js';
-import { isWriteStatement, singleStatement, enforceLimit } from './guard.js';
+import { assertDdlAllowed, isWriteStatement, singleStatement, enforceLimit } from './guard.js';
 import { buildSchemaGraph, cloneRelations, cloneTables, findCachedTable } from './schema-cache.js';
 
 export class SqliteDriver implements DatabaseDriver {
@@ -29,6 +29,7 @@ export class SqliteDriver implements DatabaseDriver {
   constructor(conn: DatabaseConnection, safety: SafetyConfig = {}) {
     this.safety = {
       allowWrites: safety.allowWrites ?? false,
+      ddlMode: safety.ddlMode ?? 'off',
       maxRows: safety.maxRows ?? 100,
       maxStatements: safety.maxStatements ?? 1,
     };
@@ -180,6 +181,7 @@ export class SqliteDriver implements DatabaseDriver {
 
   async execute(sql: string): Promise<QueryResult> {
     const stmt = singleStatement(sql, this.safety.maxStatements);
+    assertDdlAllowed(stmt, this.safety);
     if (isWriteStatement(stmt) && !this.safety.allowWrites) {
       throw new Error(
         'Write blocked: session is read-only (enable with --allow-writes or DBAGENT_ALLOW_WRITES=true).',

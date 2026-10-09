@@ -89,6 +89,8 @@ Database URLs: `sqlite://./app.db` · `postgres://user:pass@host:5432/db?ssl=tru
 | `sample_rows`        | Peek at the first N rows of a table                                                                                                                                                                 |
 | `query`              | Run read-only SQL (LIMIT auto-enforced)                                                                                                                                                             |
 | `execute`            | Run INSERT/UPDATE/DELETE — needs `--allow-writes` plus interactive y/n confirmation (SQL + impact estimate); every call is audit-logged                                                             |
+| `propose_index`      | Analyze a CREATE INDEX proposal without executing it (validates + EXPLAINs the target query); read-only, works in every DDL mode                                                                    |
+| `apply_ddl`          | Execute one CREATE INDEX after y/n confirmation — only with `--allow-ddl=on` + `--allow-writes`                                                                                                     |
 | `performance_report` | Dialect-aware diagnostics: broken/disabled/invalid indexes, missing indexes, unused/duplicate indexes, cache hit ratio, waits, top queries, blocking, bloat (`deep: true` adds fragmentation scans) |
 | `explain_query`      | Run the dialect's plan analyzer on one read-only statement (SQLite `EXPLAIN QUERY PLAN`, PostgreSQL `EXPLAIN [ANALYZE]`, MySQL `EXPLAIN`, SQL Server `SET STATISTICS PROFILE`)                      |
 
@@ -135,17 +137,18 @@ node dist/cli.js chat --db "postgres://user:pass@host:5432/prod" --provider open
 
 Safety is layered and opt-in. Out of the box the agent **cannot** modify anything.
 
-| Layer                              | Default                        | Enabled by                       |
-| ---------------------------------- | ------------------------------ | -------------------------------- |
-| Data writes (INSERT/UPDATE/DELETE) | blocked                        | `--allow-writes`                 |
-| Write confirmation (SQL + impact)  | interactive y/n per statement  | `--yes` skips it (dangerous)     |
-| Audit log (every SQL statement)    | on (`~/.dbagent/audit.log`)    | `DBAGENT_AUDIT_FILE` to relocate |
-| DROP / ALTER / TRUNCATE            | **always blocked**             | —                                |
-| Multi-statement SQL                | blocked (1 statement per call) | —                                |
-| Read result size                   | hard LIMIT 100 rows            | `--max-rows`                     |
-| File access                        | outside workdir blocked        | `--allow-system` + sandbox       |
-| Escaping the path sandbox          | impossible                     | `DBAGENT_ANY_PATH=1` (dangerous) |
-| Shell execution                    | unavailable                    | `--allow-shell`                  |
+| Layer                              | Default                        | Enabled by                                                                                    |
+| ---------------------------------- | ------------------------------ | --------------------------------------------------------------------------------------------- |
+| Data writes (INSERT/UPDATE/DELETE) | blocked                        | `--allow-writes`                                                                              |
+| Write confirmation (SQL + impact)  | interactive y/n per statement  | `--yes` skips it (dangerous)                                                                  |
+| Audit log (every SQL statement)    | on (`~/.dbagent/audit.log`)    | `DBAGENT_AUDIT_FILE` to relocate                                                              |
+| CREATE INDEX (only executable DDL) | blocked                        | `--allow-ddl=dry-run` (analyze) or `--allow-ddl=on` (apply + confirm, needs `--allow-writes`) |
+| DROP / ALTER / TRUNCATE / RENAME   | **always blocked**             | —                                                                                             |
+| Multi-statement SQL                | blocked (1 statement per call) | —                                                                                             |
+| Read result size                   | hard LIMIT 100 rows            | `--max-rows`                                                                                  |
+| File access                        | outside workdir blocked        | `--allow-system` + sandbox                                                                    |
+| Escaping the path sandbox          | impossible                     | `DBAGENT_ANY_PATH=1` (dangerous)                                                              |
+| Shell execution                    | unavailable                    | `--allow-shell`                                                                               |
 
 When `--allow-system` is on, exports and backups always land inside the working directory (`./dbagent-out/` by default), and the system prompt instructs the agent to take a backup before risky operations and to prefer dedicated tools over shell commands.
 
@@ -153,21 +156,22 @@ When `--allow-system` is on, exports and backups always land inside the working 
 
 Provider keys go in `.env` (see [.env.example](.env.example)). Any one provider is enough.
 
-| Variable                                                                | Purpose                                         |
-| ----------------------------------------------------------------------- | ----------------------------------------------- |
-| `OPENAI_API_KEY` / `OPENAI_BASE_URL`                                    | OpenAI or any compatible gateway                |
-| `OPENROUTER_API_KEY`                                                    | OpenRouter — models as `vendor/model`           |
-| `ANTHROPIC_API_KEY`                                                     | Claude                                          |
-| `GEMINI_API_KEY`                                                        | Gemini                                          |
-| `OLLAMA_BASE_URL`                                                       | defaults to `http://localhost:11434`            |
-| `DBAGENT_PROVIDER` / `DBAGENT_MODEL`                                    | defaults, overridable by CLI flags              |
-| `DBAGENT_DB_URL`                                                        | default database                                |
-| `DBAGENT_ALLOW_WRITES` / `DBAGENT_ALLOW_SYSTEM` / `DBAGENT_ALLOW_SHELL` | permission tiers                                |
-| `DBAGENT_ASSUME_YES`                                                    | auto-confirm writes (`--yes`), default off      |
-| `DBAGENT_AUDIT_FILE`                                                    | audit log path (default `~/.dbagent/audit.log`) |
-| `DBAGENT_MAX_ROWS` / `DBAGENT_MAX_ROUNDS` / `DBAGENT_TIMEOUT_MS`        | guardrail tuning                                |
-| `DBAGENT_OUT_DIR`                                                       | export/backup output directory                  |
-| `DBAGENT_TEMPERATURE` / `DBAGENT_MAX_OUTPUT_TOKENS`                     | model sampling                                  |
+| Variable                                                                | Purpose                                                 |
+| ----------------------------------------------------------------------- | ------------------------------------------------------- |
+| `OPENAI_API_KEY` / `OPENAI_BASE_URL`                                    | OpenAI or any compatible gateway                        |
+| `OPENROUTER_API_KEY`                                                    | OpenRouter — models as `vendor/model`                   |
+| `ANTHROPIC_API_KEY`                                                     | Claude                                                  |
+| `GEMINI_API_KEY`                                                        | Gemini                                                  |
+| `OLLAMA_BASE_URL`                                                       | defaults to `http://localhost:11434`                    |
+| `DBAGENT_PROVIDER` / `DBAGENT_MODEL`                                    | defaults, overridable by CLI flags                      |
+| `DBAGENT_DB_URL`                                                        | default database                                        |
+| `DBAGENT_ALLOW_WRITES` / `DBAGENT_ALLOW_SYSTEM` / `DBAGENT_ALLOW_SHELL` | permission tiers                                        |
+| `DBAGENT_ASSUME_YES`                                                    | auto-confirm writes (`--yes`), default off              |
+| `DBAGENT_ALLOW_DDL`                                                     | `off` / `dry-run` / `on` (`--allow-ddl`), default `off` |
+| `DBAGENT_AUDIT_FILE`                                                    | audit log path (default `~/.dbagent/audit.log`)         |
+| `DBAGENT_MAX_ROWS` / `DBAGENT_MAX_ROUNDS` / `DBAGENT_TIMEOUT_MS`        | guardrail tuning                                        |
+| `DBAGENT_OUT_DIR`                                                       | export/backup output directory                          |
+| `DBAGENT_TEMPERATURE` / `DBAGENT_MAX_OUTPUT_TOKENS`                     | model sampling                                          |
 
 ## Library usage
 

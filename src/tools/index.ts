@@ -6,12 +6,19 @@
  * bypasses this layer.
  */
 
-import type { AgentHooks, DatabaseDriver, QueryResult, ToolSpec } from '../core/types.js';
+import type {
+  AgentHooks,
+  DatabaseDriver,
+  DdlMode,
+  QueryResult,
+  ToolSpec,
+  WriteConfirmRequest,
+} from '../core/types.js';
 import { createSystemToolRegistry, type SystemToolDeps } from './system-tools.js';
 import { createFileToolRegistry, type FileToolDeps } from './file-tools.js';
 import { createShellToolRegistry, type ShellToolDeps } from './shell-tool.js';
 import { runExplain, runPerformanceReport } from '../system/perf.js';
-import { classifyStatement } from '../db/guard.js';
+import { classifyStatement, parseCreateIndex, singleStatement } from '../db/guard.js';
 import { estimateWriteImpact, extractWriteTables, hasNoWhere } from '../system/impact.js';
 
 export type ToolHandler = (args: Record<string, unknown>) => Promise<unknown>;
@@ -27,6 +34,12 @@ export interface BuildToolsOptions {
   allowWrites?: boolean;
   /** Enable the bash shell tool (separate, stronger gate). */
   allowShell?: boolean;
+  /**
+   * CREATE INDEX gate, mirrored from the driver's SafetyConfig: 'off'
+   * hides apply_ddl entirely, 'dry-run' offers propose_index analysis
+   * only, 'on' additionally registers apply_ddl (still human-confirmed).
+   */
+  ddlMode?: DdlMode;
   /**
    * Runtime hooks shared by reference with the Agent/CLI: audit sink for
    * every SQL statement and the human-confirmation gate for writes.
@@ -74,6 +87,33 @@ export function buildTools(db: DatabaseDriver, opts: BuildToolsOptions = {}): Bu
       });
       throw err;
     }
+  }
+
+  /**
+   * Run a mutating statement behind the human-confirmation gate.
+   * Without write mode the driver rejects with the standard blocked
+   * error (audited); without a confirm handler (non-interactive ask)
+   * the write is denied instead of hanging on an unanswerable prompt.
+   */
+  async function runConfirmedWrite(tool: string, sql: string, kind: string): Promise<QueryResult> {
+    if (!opts.allowWrites) {
+      return runAudited(tool, sql, undefined, () => db.execute(sql));
+    }
+    const request: WriteConfirmRequest = {
+      tool,
+      sql,
+      kind,
+      tables: extractWriteTables(sql),
+      noWhereWarning: hasNoWhere(sql),
+      impactEstimate: await estimateWriteImpact(db, sql),
+    };
+    const confirmed = opts.hooks?.confirm ? await opts.hooks.confirm(request) : false;
+    if (!confirmed) {
+      const error = 'Write cancelled: the operator did not confirm this statement.';
+      opts.hooks?.audit?.({ tool, sql, ok: false, error, durationMs: 0, confirmed: false });
+      throw new Error(error);
+    }
+    return runAudited(tool, sql, undefined, () => db.execute(sql), true);
   }
 
   const tools: ToolSpec[] = [
@@ -188,6 +228,26 @@ export function buildTools(db: DatabaseDriver, opts: BuildToolsOptions = {}): Bu
       },
     },
     {
+      name: 'propose_index',
+      description:
+        'Analyze a CREATE INDEX proposal without executing it: validates the statement, parses table/columns, and runs explain_query on the target query when given. Always read-only; the way to justify an index in dry-run mode.',
+      parameters: {
+        type: 'object',
+        description: 'Arguments for propose_index.',
+        properties: {
+          indexSql: {
+            type: 'string',
+            description: 'One CREATE [UNIQUE] INDEX statement to analyze.',
+          },
+          query: {
+            type: 'string',
+            description: 'Optional read-only SELECT the index should speed up (plan analyzed).',
+          },
+        },
+        required: ['indexSql'],
+      },
+    },
+    {
       name: 'performance_report',
       description:
         'Collect performance diagnostics for this database: broken/disabled/invalid indexes, missing indexes, unused and duplicate indexes, cache hit ratio, wait stats, top expensive queries, blocking and bloat. Sections degrade gracefully when a system view or permission is unavailable. Start performance investigations here.',
@@ -299,43 +359,50 @@ export function buildTools(db: DatabaseDriver, opts: BuildToolsOptions = {}): Bu
       async (args) => {
         const sql = String(args.sql ?? '').trim();
         if (!sql) throw new Error('execute requires "sql".');
-        // Writes stay driver-gated: without write mode the driver rejects
-        // with the standard blocked error (and the denial is audited).
-        if (!opts.allowWrites) {
-          return runAudited('execute', sql, undefined, () => db.execute(sql));
-        }
-        const kind = classifyStatement(sql);
         const label = /^\s*INSERT\b/i.test(sql)
           ? 'insert'
           : /^\s*UPDATE\b/i.test(sql)
             ? 'update'
             : /^\s*DELETE\b/i.test(sql)
               ? 'delete'
-              : kind;
-        const request = {
-          tool: 'execute',
-          sql,
-          kind: label,
-          tables: extractWriteTables(sql),
-          noWhereWarning: hasNoWhere(sql),
-          impactEstimate: await estimateWriteImpact(db, sql),
-        };
-        // Default-deny: non-interactive sessions (ask without --yes) have no
-        // confirm handler, so writes can never slip through unattended.
-        const confirmed = opts.hooks?.confirm ? await opts.hooks.confirm(request) : false;
-        if (!confirmed) {
-          const error = 'Write cancelled: the operator did not confirm this statement.';
-          opts.hooks?.audit?.({
-            tool: 'execute',
-            sql,
-            ok: false,
-            error,
-            durationMs: 0,
-            confirmed: false,
-          });
-          throw new Error(error);
+              : classifyStatement(sql);
+        return runConfirmedWrite('execute', sql, label);
+      },
+    ],
+    [
+      'propose_index',
+      async (args) => {
+        const indexSql = String(args.indexSql ?? '').trim();
+        if (!indexSql) throw new Error('propose_index requires "indexSql".');
+        const stmt = singleStatement(indexSql, 1);
+        const parsed = parseCreateIndex(stmt);
+        if (!parsed) {
+          throw new Error(
+            'propose_index needs one CREATE [UNIQUE] INDEX statement, e.g. CREATE INDEX idx_orders_customer ON orders (customer_id).',
+          );
         }
-        return runAudited('execute', sql, undefined, () => db.execute(sql), true);
+        const query = String(args.query ?? '').trim();
+        let plan: unknown = null;
+        if (query) {
+          plan = await runExplain(db, query, { analyze: false });
+        }
+        return {
+          indexSql: stmt,
+          table: parsed.table,
+          columns: parsed.columns,
+          unique: parsed.unique,
+          executed: false,
+          planBefore: plan,
+          guidance: [
+            'Not executed (analysis only).',
+            `Expected win: faster lookups/joins on ${parsed.table}(${parsed.columns.join(', ')}); verify with explain_query after applying.`,
+            'Costs: slower writes on the table, extra disk, maintenance during VACUUM/REINDEX windows.',
+            parsed.unique
+              ? 'UNIQUE also enforces a constraint: duplicate values will fail inserts.'
+              : 'Non-unique: safe for reads; still needs the apply confirmation.',
+            'To apply: re-run with --allow-ddl=on plus human confirmation (apply_ddl).',
+          ],
+        };
       },
     ],
     ['performance_report', async (args) => runPerformanceReport(db, { deep: !!args.deep })],
@@ -348,6 +415,35 @@ export function buildTools(db: DatabaseDriver, opts: BuildToolsOptions = {}): Bu
       },
     ],
   ]);
+
+  // ── apply_ddl: only in --allow-ddl=on (plus --allow-writes + human confirm) ──
+  if ((opts.ddlMode ?? 'off') === 'on') {
+    tools.push({
+      name: 'apply_ddl',
+      description:
+        'Execute one CREATE [UNIQUE] INDEX statement after explicit human confirmation (same y/n gate as execute, audit-logged). DROP/ALTER/TRUNCATE and every other DDL stay blocked.',
+      parameters: {
+        type: 'object',
+        description: 'Arguments for apply_ddl.',
+        properties: {
+          sql: {
+            type: 'string',
+            description: 'One CREATE [UNIQUE] INDEX statement to execute.',
+          },
+        },
+        required: ['sql'],
+      },
+    });
+    registry.set('apply_ddl', async (args) => {
+      const sql = String(args.sql ?? '').trim();
+      if (!sql) throw new Error('apply_ddl requires "sql".');
+      // Tool-level validation mirrors the driver gate (defense in depth).
+      if (!parseCreateIndex(singleStatement(sql, 1))) {
+        throw new Error('apply_ddl runs only CREATE [UNIQUE] INDEX statements.');
+      }
+      return runConfirmedWrite('apply_ddl', sql, 'create_index');
+    });
+  }
 
   // System-level tools (stats/export/import/backup/discover) when opted in.
   if (opts.allowSystem) {

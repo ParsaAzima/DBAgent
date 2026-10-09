@@ -2,12 +2,20 @@
  * Shared SQL guardrails used by every database driver.
  */
 
-import type { DatabaseDialect } from '../core/types.js';
+import type { DatabaseDialect, DdlMode } from '../core/types.js';
 
 const READ_KEYWORD = /^(WITH|SELECT|PRAGMA|SHOW|EXPLAIN|DESCRIBE|TABLE)\b/i;
 const WRITE_KEYWORD =
   /^(INSERT|UPDATE|DELETE|MERGE|REPLACE|GRANT|REVOKE|VACUUM|ANALYZE|REINDEX)\b/i;
 const DDL_KEYWORD = /^(CREATE|ALTER|DROP|TRUNCATE|RENAME|COMMENT|LOCK)\b/i;
+
+export type { DdlMode };
+
+/** DROP/ALTER/TRUNCATE/RENAME are never executed, in any mode. */
+const DESTRUCTIVE_DDL = /^(DROP|ALTER|TRUNCATE|RENAME)\b/i;
+
+/** The only DDL the agent may run (gated by ddlMode + write mode + confirm). */
+const CREATE_INDEX = /^\s*CREATE\s+(UNIQUE\s+)?INDEX\b/i;
 
 export type StatementKind = 'read' | 'write' | 'ddl' | 'other';
 
@@ -57,6 +65,74 @@ export function classifyStatement(sql: string): StatementKind {
 export function isWriteStatement(sql: string): boolean {
   const kind = classifyStatement(sql);
   return kind === 'write' || kind === 'ddl';
+}
+
+/** True for DROP/ALTER/TRUNCATE/RENAME — blocked in every mode. */
+export function isDestructiveDdl(sql: string): boolean {
+  return DESTRUCTIVE_DDL.test(normalizeSql(sql));
+}
+
+/** True for CREATE [UNIQUE] INDEX — the only executable DDL. */
+export function isCreateIndex(sql: string): boolean {
+  return CREATE_INDEX.test(normalizeSql(sql));
+}
+
+/**
+ * Driver-level DDL gate. Call after singleStatement(), before any other
+ * check: destructive DDL is refused in every mode, non-INDEX DDL is
+ * refused, and CREATE INDEX requires ddlMode 'on' plus write mode.
+ * Reads and plain writes pass through untouched.
+ */
+export function assertDdlAllowed(
+  stmt: string,
+  safety: { allowWrites: boolean; ddlMode: DdlMode },
+): void {
+  if (isDestructiveDdl(stmt)) {
+    throw new Error(
+      'Destructive DDL blocked: DROP/ALTER/TRUNCATE/RENAME are never executed by the agent, in any mode.',
+    );
+  }
+  if (classifyStatement(stmt) !== 'ddl') return;
+  if (!isCreateIndex(stmt)) {
+    throw new Error(
+      'DDL blocked: only CREATE INDEX is supported (analyze with propose_index; apply with apply_ddl under --allow-ddl=on).',
+    );
+  }
+  if (safety.ddlMode !== 'on') {
+    throw new Error(
+      safety.ddlMode === 'dry-run'
+        ? 'DDL dry-run: CREATE INDEX is analyzed via propose_index but never executed. Re-run with --allow-ddl=on plus human confirmation to apply it.'
+        : 'DDL disabled: CREATE INDEX needs --allow-ddl=dry-run (analyze only) or --allow-ddl=on (apply after human confirmation).',
+    );
+  }
+  if (!safety.allowWrites) {
+    throw new Error('DDL needs write mode too: pass --allow-writes alongside --allow-ddl=on.');
+  }
+}
+
+/**
+ * Parse an index definition for analysis/display. Returns null when the
+ * SQL is not a CREATE INDEX statement.
+ */
+export function parseCreateIndex(sql: string): {
+  name: string;
+  table: string;
+  columns: string[];
+  unique: boolean;
+} | null {
+  const m =
+    /^\s*CREATE\s+(UNIQUE\s+)?INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?([^\s(]+)\s+ON\s+([^\s(,;]+)\s*\(([^)]+)\)/i.exec(
+      normalizeSql(sql),
+    );
+  if (!m) return null;
+  const clean = (s: string) =>
+    s
+      .trim()
+      .replace(/["`[\]]/g, '')
+      .replace(/\s+(ASC|DESC)$/i, '');
+  const columns = m[4].split(',').map(clean).filter(Boolean);
+  if (columns.length === 0) return null;
+  return { name: clean(m[2]), table: clean(m[3]), columns, unique: !!m[1] };
 }
 
 /** Enforce "one statement per call" by rejecting semicolon-chained SQL. */

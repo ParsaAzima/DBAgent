@@ -85,8 +85,9 @@ const imp = await importCsv(db, join(outDir, 'customers.csv'), 'customers_import
 check('import inserted 5 rows', imp.inserted === 5, JSON.stringify(imp));
 const verify = await db.execute('SELECT COUNT(*) FROM customers_import_test');
 check('import verified count', Number(verify.rows[0][0]) === 5);
-// cleanup imported table
-await db.execute('DROP TABLE customers_import_test');
+// cleanup imported table (privileged native handle: DROP is never allowed
+// via db.execute, in any mode — the test acts as the operator here)
+db.db.exec('DROP TABLE customers_import_test');
 
 // 6. backup via VACUUM INTO
 const bak = await backup(db, join(outDir, 'demo-backup.db'));

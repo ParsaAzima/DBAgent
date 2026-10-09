@@ -13,7 +13,13 @@ import type {
   TableInfo,
   ColumnInfo,
 } from '../core/types.js';
-import { classifyStatement, isWriteStatement, singleStatement, enforceLimit } from './guard.js';
+import {
+  assertDdlAllowed,
+  classifyStatement,
+  isWriteStatement,
+  singleStatement,
+  enforceLimit,
+} from './guard.js';
 import { buildSchemaGraph, cloneRelations, cloneTables, findCachedTable } from './schema-cache.js';
 
 export class MysqlDriver implements DatabaseDriver {
@@ -31,6 +37,7 @@ export class MysqlDriver implements DatabaseDriver {
     this.connSpec = conn;
     this.safety = {
       allowWrites: safety.allowWrites ?? false,
+      ddlMode: safety.ddlMode ?? 'off',
       maxRows: safety.maxRows ?? 100,
       maxStatements: safety.maxStatements ?? 1,
     };
@@ -112,6 +119,7 @@ export class MysqlDriver implements DatabaseDriver {
   async execute(sql: string): Promise<QueryResult> {
     const conn = await this.ensureConnection();
     const stmt = singleStatement(sql, this.safety.maxStatements);
+    assertDdlAllowed(stmt, this.safety);
     const kind = classifyStatement(stmt);
     if (isWriteStatement(stmt) && !this.safety.allowWrites) {
       throw new Error(

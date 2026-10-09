@@ -31,7 +31,7 @@ function redactDbUrl(url: string): string {
 
 async function withDb<T>(
   dbUrl: string,
-  safety: { allowWrites: boolean; maxRows: number },
+  safety: { allowWrites: boolean; maxRows: number; ddlMode?: import('./core/types.js').DdlMode },
   fn: (db: ReturnType<typeof createDatabaseDriver>) => Promise<T>,
 ): Promise<T> {
   const db = createDatabaseDriver(dbUrl, safety);
@@ -59,6 +59,10 @@ program
   .option('--provider <id>', `LLM provider (${PROVIDER_IDS.join('|')})`)
   .option('--model <name>', 'Model name override')
   .option('--allow-writes', 'Enable INSERT/UPDATE/DELETE (read-only by default)', false)
+  .option(
+    '--allow-ddl [mode]',
+    'CREATE INDEX gate: dry-run (analyze only) or on (apply after confirm). Bare flag = dry-run',
+  )
   .option('--yes', 'Auto-confirm write prompts (dangerous: no y/n gate)', false)
   .option(
     '--allow-system',
@@ -81,6 +85,7 @@ program
         allowSystemFlag: opts.allowSystem,
         allowShellFlag: opts.allowShell,
         assumeYesFlag: opts.yes,
+        ddlModeFlag: opts.allowDdl,
         maxRowsFlag: opts.maxRows,
       });
     } catch (err) {
@@ -107,6 +112,7 @@ program
     try {
       db = createDatabaseDriver(cfg.dbUrl, {
         allowWrites: cfg.allowWrites,
+        ddlMode: cfg.ddlMode,
         maxRows: cfg.maxRows,
       });
     } catch (err) {
@@ -131,6 +137,7 @@ program
       allowSystem: cfg.allowSystem,
       allowWrites: cfg.allowWrites,
       allowShell: cfg.allowShell,
+      ddlMode: cfg.ddlMode,
       hooks,
     });
     hooks.audit = createAuditSink({ sessionId, dbTarget: db.describeTarget() });
@@ -191,6 +198,9 @@ program
     );
     console.log(
       `  Confirm : ${cfg.allowWrites ? (cfg.assumeYes ? 'auto-yes (--yes)' : 'interactive y/n') : 'n/a (read-only)'}`,
+    );
+    console.log(
+      `  DDL     : ${cfg.ddlMode} (CREATE INDEX ${cfg.ddlMode === 'on' ? 'apply+confirm' : cfg.ddlMode === 'dry-run' ? 'analyze-only' : 'disabled'}; DROP/ALTER always blocked)`,
     );
     console.log(`  Audit   : all SQL → ~/.dbagent/audit.log`);
     console.log(`  Session : ${sessionId}`);
@@ -307,6 +317,7 @@ program
   .option('--model <name>', 'Model name override')
   .option('--allow-writes', 'Enable writes (discouraged for one-shots)', false)
   .option('--allow-system', 'Enable system tools (stats/export/import/backup/discover)', false)
+  .option('--allow-ddl [mode]', 'CREATE INDEX gate: dry-run or on (bare flag = dry-run)')
   .option('--yes', 'Auto-confirm write prompts (dangerous: no y/n gate)', false)
   .option('--max-rows <n>', 'Hard LIMIT for read queries', parseInt)
   .action(async (question, opts) => {
@@ -320,6 +331,7 @@ program
         allowWritesFlag: opts.allowWrites,
         allowSystemFlag: opts.allowSystem,
         assumeYesFlag: opts.yes,
+        ddlModeFlag: opts.allowDdl,
         maxRowsFlag: opts.maxRows,
       });
     } catch (err) {
@@ -335,13 +347,14 @@ program
       const askId = `ask-${randomUUID().slice(0, 8)}`;
       const result = await withDb(
         cfg.dbUrl,
-        { allowWrites: cfg.allowWrites, maxRows: cfg.maxRows },
+        { allowWrites: cfg.allowWrites, ddlMode: cfg.ddlMode, maxRows: cfg.maxRows },
         async (db) => {
           hooks.audit = createAuditSink({ sessionId: askId, dbTarget: db.describeTarget() });
           const llm = createLLMAdapter(cfg.llm);
           const agent = new Agent(llm, db, cfg.llm, cfg.maxRounds, {
             allowSystem: cfg.allowSystem,
             allowWrites: cfg.allowWrites,
+            ddlMode: cfg.ddlMode,
             hooks,
           });
           return agent.runTurn(question, { timeoutMs: cfg.timeoutMs });
