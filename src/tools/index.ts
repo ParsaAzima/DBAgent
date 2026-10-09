@@ -64,6 +64,22 @@ export function buildTools(db: DatabaseDriver, opts: BuildToolsOptions = {}): Bu
       parameters: { type: 'object', description: 'No arguments.', properties: {}, required: [] },
     },
     {
+      name: 'list_routines',
+      description:
+        'List stored procedures, functions and triggers (SQLite: triggers only). Use to find business logic hidden in the database before assuming it lives in app code.',
+      parameters: {
+        type: 'object',
+        description: 'Arguments for list_routines.',
+        properties: {
+          kind: {
+            type: 'string',
+            description: 'Optional filter: "procedure", "function" or "trigger".',
+          },
+        },
+        required: [],
+      },
+    },
+    {
       name: 'describe_table',
       description:
         'Get detailed column metadata for one table or view: names, data types, nullability, primary keys, defaults.',
@@ -186,6 +202,19 @@ export function buildTools(db: DatabaseDriver, opts: BuildToolsOptions = {}): Bu
       },
     ],
     ['get_schema_graph', async () => db.getSchemaGraph()],
+    [
+      'list_routines',
+      async (args) => {
+        const kind = String(args.kind ?? '')
+          .trim()
+          .toLowerCase();
+        if (kind && !['procedure', 'function', 'trigger'].includes(kind)) {
+          throw new Error('list_routines "kind" must be procedure, function or trigger.');
+        }
+        const routines = await db.listRoutines();
+        return kind ? routines.filter((r) => r.kind === kind) : routines;
+      },
+    ],
     [
       'describe_table',
       async (args) => {

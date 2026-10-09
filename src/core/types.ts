@@ -184,6 +184,23 @@ export interface SchemaGraph {
   isolatedTables: string[];
 }
 
+/** Stored routine: procedure, function or trigger. */
+export interface RoutineInfo {
+  name: string;
+  schema?: string;
+  kind: 'procedure' | 'function' | 'trigger';
+  /** Implementation language when the dialect exposes one (e.g. plpgsql, SQL). */
+  language?: string;
+  /** Declared return type for functions, when known. */
+  returnType?: string;
+  /** Trigger target table, when applicable. */
+  targetTable?: string;
+  /** BEFORE/AFTER/INSTEAD OF for triggers, when known. */
+  timing?: string;
+  /** INSERT/UPDATE/DELETE for triggers, when known. */
+  event?: string;
+}
+
 /** Result of executing a statement through a DatabaseDriver. */
 export interface QueryResult {
   columns: string[];
@@ -221,6 +238,12 @@ export interface DatabaseDriver {
   listRelations(): Promise<ForeignKeyRelation[]>;
   /** FK edges plus the tables that have none. */
   getSchemaGraph(): Promise<SchemaGraph>;
+  /**
+   * Stored procedures, functions and triggers. SQLite exposes triggers
+   * only (no procedures/functions). Single cheap catalog queries —
+   * intentionally uncached.
+   */
+  listRoutines(): Promise<RoutineInfo[]>;
   /** Peek at table contents; always a read-only SELECT with LIMIT. */
   sampleRows(name: string, limit: number): Promise<QueryResult>;
   /** Execute a guarded SQL statement. */

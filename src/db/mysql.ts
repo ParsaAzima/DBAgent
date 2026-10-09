@@ -7,6 +7,7 @@ import type {
   DatabaseDriver,
   ForeignKeyRelation,
   QueryResult,
+  RoutineInfo,
   SafetyConfig,
   SchemaGraph,
   TableInfo,
@@ -178,6 +179,47 @@ export class MysqlDriver implements DatabaseDriver {
 
   async getSchemaGraph(): Promise<SchemaGraph> {
     return buildSchemaGraph(await this.listTables(), await this.listRelations());
+  }
+
+  async listRoutines(): Promise<RoutineInfo[]> {
+    const conn = await this.ensureConnection();
+    const [routines] = await conn.query(
+      `SELECT ROUTINE_SCHEMA AS schema, ROUTINE_NAME AS name,
+              ROUTINE_TYPE AS kind, DTD_IDENTIFIER AS return_type
+       FROM information_schema.ROUTINES
+       WHERE ROUTINE_SCHEMA = ?
+       ORDER BY ROUTINE_NAME`,
+      [this.database],
+    );
+    const [triggers] = await conn.query(
+      `SELECT TRIGGER_SCHEMA AS schema, TRIGGER_NAME AS name,
+              EVENT_OBJECT_TABLE AS target_table,
+              ACTION_TIMING AS timing, EVENT_MANIPULATION AS event
+       FROM information_schema.TRIGGERS
+       WHERE TRIGGER_SCHEMA = ?
+       ORDER BY TRIGGER_NAME`,
+      [this.database],
+    );
+    return [
+      ...(routines as any[]).map((r) => ({
+        name: String(r.name ?? r.ROUTINE_NAME),
+        schema: String(r.schema ?? this.database),
+        kind:
+          String(r.kind ?? r.ROUTINE_TYPE).toUpperCase() === 'PROCEDURE'
+            ? ('procedure' as const)
+            : ('function' as const),
+        language: 'SQL',
+        returnType: r.return_type ?? r.DTD_IDENTIFIER ?? undefined,
+      })),
+      ...(triggers as any[]).map((r) => ({
+        name: String(r.name ?? r.TRIGGER_NAME),
+        schema: String(r.schema ?? this.database),
+        kind: 'trigger' as const,
+        targetTable: String(r.target_table ?? r.EVENT_OBJECT_TABLE),
+        timing: String(r.timing ?? r.ACTION_TIMING ?? ''),
+        event: String(r.event ?? r.EVENT_MANIPULATION ?? ''),
+      })),
+    ];
   }
 
   private async columnsOf(table: string): Promise<ColumnInfo[]> {

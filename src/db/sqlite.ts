@@ -8,6 +8,7 @@ import type {
   DatabaseDriver,
   ForeignKeyRelation,
   QueryResult,
+  RoutineInfo,
   SafetyConfig,
   SchemaGraph,
   TableInfo,
@@ -144,6 +145,32 @@ export class SqliteDriver implements DatabaseDriver {
 
   async getSchemaGraph(): Promise<SchemaGraph> {
     return buildSchemaGraph(await this.listTables(), await this.listRelations());
+  }
+
+  /**
+   * SQLite has no stored procedures or functions, but it does have
+   * triggers — listed here from sqlite_master (timing/event parsed from
+   * the stored CREATE TRIGGER text).
+   */
+  async listRoutines(): Promise<RoutineInfo[]> {
+    const triggers = this.db
+      .prepare(
+        `SELECT name, tbl_name AS target, sql FROM sqlite_master
+          WHERE type = 'trigger' ORDER BY name`,
+      )
+      .all() as { name: string; target: string; sql: string | null }[];
+    return triggers.map((t) => {
+      const m = /BEFORE|AFTER|INSTEAD\s+OF/i.exec(t.sql ?? '');
+      const e = /\b(INSERT|UPDATE|DELETE)\b/i.exec(t.sql ?? '');
+      const timing = m ? m[0].toUpperCase().replace(/\s+/g, ' ') : undefined;
+      return {
+        name: t.name,
+        kind: 'trigger' as const,
+        targetTable: String(t.target),
+        timing,
+        event: e ? e[1].toUpperCase() : undefined,
+      };
+    });
   }
 
   async sampleRows(name: string, limit: number): Promise<QueryResult> {

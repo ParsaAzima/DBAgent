@@ -8,6 +8,7 @@ import type {
   DatabaseDriver,
   ForeignKeyRelation,
   QueryResult,
+  RoutineInfo,
   SafetyConfig,
   SchemaGraph,
   TableInfo,
@@ -226,6 +227,30 @@ export class SqlServerDriver implements DatabaseDriver {
 
   async getSchemaGraph(): Promise<SchemaGraph> {
     return buildSchemaGraph(await this.listTables(), await this.listRelations());
+  }
+
+  async listRoutines(): Promise<RoutineInfo[]> {
+    const pool = await this.ensurePool();
+    const res = await pool.request().query(
+      `SELECT SCHEMA_NAME(o.schema_id) AS [schema], o.name AS [name],
+              CASE WHEN o.type = 'P' THEN 'procedure'
+                   WHEN o.type = 'TR' THEN 'trigger'
+                   ELSE 'function' END AS [kind],
+              OBJECT_NAME(t.parent_id) AS [target_table]
+       FROM sys.objects o
+       LEFT JOIN sys.triggers t ON t.object_id = o.object_id
+       WHERE o.type IN ('P', 'FN', 'IF', 'TF', 'TR') AND o.is_ms_shipped = 0
+       ORDER BY SCHEMA_NAME(o.schema_id), o.name`,
+    );
+    return (res.recordset ?? []).map((r: any) => ({
+      name: String(r.name),
+      schema: String(r.schema),
+      kind: r.kind as 'procedure' | 'function' | 'trigger',
+      language: 'T-SQL',
+      ...(r.kind === 'trigger' && r.target_table != null
+        ? { targetTable: String(r.target_table) }
+        : {}),
+    }));
   }
 
   private async columnsOf(table: string, schema: string | null): Promise<ColumnInfo[]> {

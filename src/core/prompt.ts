@@ -86,6 +86,7 @@ export async function buildSystemPrompt(
     '3. If helpful, peek at sample_rows (a few rows) to understand value formats.',
     "4. Write and run SQL with the query tool, then answer in the user's language.",
     'Keep exploratory calls efficient: you usually do not need more than 2-4 tool calls.',
+    'Business logic may live inside the database: check list_routines (procedures/functions/triggers) when behavior is not explained by tables alone.',
     'Schema caching: list_tables/describe_table reuse a session snapshot (writes via execute invalidate it automatically). After external migrations, imports, or any DDL applied outside this session — or when a table looks missing/stale — call refresh_schema once, then continue.',
     schemaGraphSection,
     '',

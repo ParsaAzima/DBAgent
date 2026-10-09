@@ -8,6 +8,7 @@ import type {
   DatabaseDriver,
   ForeignKeyRelation,
   QueryResult,
+  RoutineInfo,
   SafetyConfig,
   SchemaGraph,
   TableInfo,
@@ -187,6 +188,45 @@ export class PostgresDriver implements DatabaseDriver {
 
   async getSchemaGraph(): Promise<SchemaGraph> {
     return buildSchemaGraph(await this.listTables(), await this.listRelations());
+  }
+
+  async listRoutines(): Promise<RoutineInfo[]> {
+    const { rows: procs } = await this.pool.query(
+      `SELECT n.nspname AS schema, p.proname AS name,
+              CASE WHEN p.prokind = 'p' THEN 'procedure' ELSE 'function' END AS kind,
+              l.lanname AS language,
+              pg_get_function_result(p.oid) AS return_type
+       FROM pg_proc p
+       JOIN pg_namespace n ON n.oid = p.pronamespace
+       JOIN pg_language l ON l.oid = p.prolang
+       WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+         AND n.nspname NOT LIKE 'pg_toast%'
+       ORDER BY n.nspname, p.proname`,
+    );
+    const { rows: triggers } = await this.pool.query(
+      `SELECT trigger_schema AS schema, trigger_name AS name,
+              event_object_table AS target_table,
+              action_timing AS timing, event_manipulation AS event
+       FROM information_schema.triggers
+       ORDER BY trigger_schema, trigger_name`,
+    );
+    return [
+      ...procs.map((r: any) => ({
+        name: String(r.name),
+        schema: String(r.schema),
+        kind: r.kind === 'procedure' ? ('procedure' as const) : ('function' as const),
+        language: String(r.language ?? ''),
+        returnType: r.kind === 'procedure' ? undefined : String(r.return_type ?? ''),
+      })),
+      ...triggers.map((r: any) => ({
+        name: String(r.name),
+        schema: String(r.schema),
+        kind: 'trigger' as const,
+        targetTable: String(r.target_table),
+        timing: String(r.timing ?? ''),
+        event: String(r.event ?? ''),
+      })),
+    ];
   }
 
   private async columnsOf(schema: string | null, table: string): Promise<ColumnInfo[]> {
