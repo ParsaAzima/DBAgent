@@ -188,7 +188,7 @@ export interface DatabaseDriver {
   close(): Promise<void>;
 }
 
-export type DatabaseDialect = 'sqlite' | 'postgres' | 'mysql';
+export type DatabaseDialect = 'sqlite' | 'postgres' | 'mysql' | 'sqlserver';
 
 /** Parsed database connection descriptor. */
 export interface DatabaseConnection {
@@ -201,4 +201,8 @@ export interface DatabaseConnection {
   user?: string;
   password?: string;
   ssl?: boolean;
+  /** SQL Server: verify the server certificate (only meaningful with ssl/encrypt). */
+  trustServerCertificate?: boolean;
+  /** SQL Server: named instance, e.g. SQLEXPRESS (uses a dynamic port). */
+  instanceName?: string;
 }

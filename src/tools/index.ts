@@ -10,6 +10,7 @@ import type { DatabaseDriver, ToolSpec } from '../core/types.js';
 import { createSystemToolRegistry, type SystemToolDeps } from './system-tools.js';
 import { createFileToolRegistry, type FileToolDeps } from './file-tools.js';
 import { createShellToolRegistry, type ShellToolDeps } from './shell-tool.js';
+import { runExplain, runPerformanceReport } from '../system/perf.js';
 
 export type ToolHandler = (args: Record<string, unknown>) => Promise<unknown>;
 
@@ -87,6 +88,41 @@ export function buildTools(db: DatabaseDriver, opts: BuildToolsOptions = {}): Bu
         required: ['sql'],
       },
     },
+    {
+      name: 'performance_report',
+      description:
+        'Collect performance diagnostics for this database: broken/disabled/invalid indexes, missing indexes, unused and duplicate indexes, cache hit ratio, wait stats, top expensive queries, blocking and bloat. Sections degrade gracefully when a system view or permission is unavailable. Start performance investigations here.',
+      parameters: {
+        type: 'object',
+        description: 'Arguments for performance_report.',
+        properties: {
+          deep: {
+            type: 'boolean',
+            description:
+              'Include expensive checks (SQL Server index fragmentation scan, SQLite dbstat file scan). Default false.',
+          },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'explain_query',
+      description:
+        "Run the dialect's query-plan analyzer on a single read-only statement and return the plan rows. Use it to spot full table scans, missing indexes, row-estimate mismatches, sorts/temp spills and blocking operators. SQLite/MySQL/PostgreSQL do not execute the query unless analyze is set.",
+      parameters: {
+        type: 'object',
+        description: 'Arguments for explain_query.',
+        properties: {
+          sql: { type: 'string', description: 'One read-only SELECT/WITH statement to analyze.' },
+          analyze: {
+            type: 'boolean',
+            description:
+              'PostgreSQL: also execute the plan to include actual row counts and buffer usage. SQL Server profiles always execute. Default false.',
+          },
+        },
+        required: ['sql'],
+      },
+    },
   ];
 
   const registry = new Map<string, ToolHandler>([
@@ -125,6 +161,18 @@ export function buildTools(db: DatabaseDriver, opts: BuildToolsOptions = {}): Bu
         const sql = String(args.sql ?? '').trim();
         if (!sql) throw new Error('execute requires "sql".');
         return db.execute(sql);
+      },
+    ],
+    [
+      'performance_report',
+      async (args) => runPerformanceReport(db, { deep: !!args.deep }),
+    ],
+    [
+      'explain_query',
+      async (args) => {
+        const sql = String(args.sql ?? '').trim();
+        if (!sql) throw new Error('explain_query requires "sql".');
+        return runExplain(db, sql, { analyze: !!args.analyze });
       },
     ],
   ]);
@@ -183,7 +231,7 @@ export function buildTools(db: DatabaseDriver, opts: BuildToolsOptions = {}): Bu
       {
         name: 'backup',
         description:
-          'Create a database backup file: SQLite uses VACUUM INTO; PostgreSQL/MySQL use pg_dump/mysqldump when available.',
+          'Create a database backup file: SQLite uses VACUUM INTO; PostgreSQL/MySQL use pg_dump/mysqldump; SQL Server runs BACKUP DATABASE (the .bak is written on the server host).',
         parameters: {
           type: 'object',
           description: 'Arguments for backup.',
@@ -196,7 +244,7 @@ export function buildTools(db: DatabaseDriver, opts: BuildToolsOptions = {}): Bu
       {
         name: 'discover_local_databases',
         description:
-          'Scan this machine for usable databases: running PostgreSQL/MySQL servers (port probe), SQLite files under the working directory, and available client tools.',
+          'Scan this machine for usable databases: running PostgreSQL/MySQL/SQL Server servers (port probe), SQLite files under the working directory, and available client tools.',
         parameters: { type: 'object', description: 'No arguments.', properties: {}, required: [] },
       },
     ];
@@ -311,7 +359,7 @@ export function buildTools(db: DatabaseDriver, opts: BuildToolsOptions = {}): Bu
     tools.push({
       name: 'bash',
       description:
-        'Run a shell command (cmd.exe on Windows, /bin/sh elsewhere) in the working directory. Use for psql/mysql clients, running migration scripts, git, etc. Hard timeout 30s (max 120s); output capped. Prefer dedicated tools when available.',
+        'Run a shell command (cmd.exe on Windows, /bin/sh elsewhere) in the working directory. Use for psql/mysql/sqlcmd clients, running migration scripts, git, etc. Hard timeout 30s (max 120s); output capped. Prefer dedicated tools when available.',
       parameters: {
         type: 'object',
         description: 'Arguments for bash.',

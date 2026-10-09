@@ -92,7 +92,7 @@ export function resolveConfig(opts: {
   const dbUrl = opts.dbUrlFlag ?? process.env.DBAGENT_DB_URL;
   if (!dbUrl) {
     throw new Error(
-      'No database configured. Pass --db <url> or set DBAGENT_DB_URL (e.g. sqlite://./app.db, postgres://user:pass@host:5432/db).',
+      'No database configured. Pass --db <url> or set DBAGENT_DB_URL (e.g. sqlite://./app.db, postgres://user:pass@host:5432/db, sqlserver://user:pass@host:1433/db).',
     );
   }
 

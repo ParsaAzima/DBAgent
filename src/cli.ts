@@ -44,7 +44,7 @@ program
 program
   .command('chat')
   .description('Interactive chat with your database (TUI; --plain for simple REPL).')
-  .option('--db <url>', 'Database URL (sqlite://./app.db, postgres://..., mysql://...)')
+  .option('--db <url>', 'Database URL (sqlite://./app.db, postgres://..., mysql://..., sqlserver://...)')
   .option('--provider <id>', `LLM provider (${PROVIDER_IDS.join('|')})`)
   .option('--model <name>', 'Model name override')
   .option('--allow-writes', 'Enable INSERT/UPDATE/DELETE (read-only by default)', false)

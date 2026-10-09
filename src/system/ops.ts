@@ -5,7 +5,7 @@
  *   system_info : version, uptime, connections, settings snapshot
  *   export      : dump a table/result to CSV or JSON file
  *   import      : load a CSV file into a table (uses write path)
- *   backup      : dialect-native backup (VACUUM INTO / pg_dump / mysqldump)
+ *   backup      : dialect-native backup (VACUUM INTO / pg_dump / mysqldump / BACKUP DATABASE)
  *
  * File paths are resolved by the caller (CLI) and always stay under the
  * working directory unless an absolute path is given by the operator.
@@ -34,6 +34,13 @@ export interface DbStats {
   totalSizeBytes?: number;
   tables: TableStat[];
   generatedAt: string;
+}
+
+/** Dialect-appropriate identifier quoting (mysql `, sqlserver [], else ""). */
+export function quoteIdent(dialect: DatabaseDialect, name: string): string {
+  if (dialect === 'mysql') return `\`${name.replace(/`/g, '``')}\``;
+  if (dialect === 'sqlserver') return `[${name.replace(/\]/g, ']]')}]`;
+  return `"${name.replace(/"/g, '""')}"`;
 }
 
 export async function collectStats(db: DatabaseDriver): Promise<DbStats> {
@@ -91,6 +98,31 @@ export async function collectStats(db: DatabaseDriver): Promise<DbStats> {
         if (row) {
           s.sizeBytes = Number(row.size ?? 0);
           s.rowCountEstimate = Number(row.table_rows ?? s.rowCountEstimate);
+        }
+      }
+    } else if (db.dialect === 'sqlserver') {
+      const pool = await (db as any).ensurePool();
+      const total = await pool.request().query(
+        `SELECT CAST(SUM(size) AS BIGINT) AS [size]
+         FROM sys.master_files WHERE database_id = DB_ID()`,
+      );
+      totalSizeBytes = Number(total.recordset?.[0]?.size ?? 0);
+      const perTable = await pool.request().query(
+        `SELECT OBJECT_NAME(ps.object_id) AS [name],
+                CAST(SUM(ps.reserved_page_count) AS BIGINT) * 8192 AS [size],
+                (SELECT COUNT(*) FROM sys.indexes i
+                  WHERE i.object_id = ps.object_id AND i.index_id > 0
+                    AND i.is_hypothetical = 0) AS [indexes]
+         FROM sys.dm_db_partition_stats ps
+         GROUP BY ps.object_id`,
+      );
+      for (const s of stats) {
+        const row = (perTable.recordset ?? []).find(
+          (r: any) => String(r.name) === s.table.split('.').pop(),
+        );
+        if (row) {
+          s.sizeBytes = Number(row.size ?? 0);
+          s.indexCount = Number(row.indexes ?? 0);
         }
       }
     }
@@ -154,6 +186,42 @@ export async function collectSystemInfo(db: DatabaseDriver): Promise<SystemInfo>
     for (const r of st as any[]) info.settings[r.variable_name] = String(r.variable_value);
     const [up] = await conn.query('SHOW GLOBAL STATUS LIKE "Uptime"');
     info.uptimeSeconds = Number((up as any[])[0]?.Value ?? 0);
+  } else if (db.dialect === 'sqlserver') {
+    const pool = await (db as any).ensurePool();
+    const v = await pool.request().query(
+      `SELECT CAST(SERVERPROPERTY('productversion') AS nvarchar(128)) AS [version],
+              CAST(SERVERPROPERTY('productlevel') AS nvarchar(128)) AS [level],
+              CAST(SERVERPROPERTY('edition') AS nvarchar(128)) AS [edition]`,
+    );
+    const row = v.recordset?.[0];
+    if (row) {
+      info.version = `${row.version} (${row.level}, ${row.edition})`;
+      info.extra.engine = String(row.edition ?? '');
+    }
+    try {
+      // DMVs below require VIEW SERVER / DATABASE STATE — best effort.
+      const up = await pool.request().query('SELECT sqlserver_start_time FROM sys.dm_os_sys_info');
+      const start = up.recordset?.[0]?.sqlserver_start_time;
+      if (start) {
+        info.uptimeSeconds = Math.max(
+          0,
+          Math.floor((Date.now() - new Date(start).getTime()) / 1000),
+        );
+      }
+      const conns = await pool.request().query(
+        `SELECT COUNT(*) AS [conns] FROM sys.dm_exec_sessions WHERE is_user_process = 1`,
+      );
+      info.activeConnections = Number(conns.recordset?.[0]?.conns ?? 0);
+      const st = await pool.request().query(
+        `SELECT name, CAST(value_in_use AS nvarchar(128)) AS [value]
+         FROM sys.configurations
+         WHERE name IN ('max server memory (MB)', 'min server memory (MB)',
+                        'max degree of parallelism', 'cost threshold for parallelism')`,
+      );
+      for (const r of st.recordset ?? []) info.settings[String(r.name)] = String(r.value);
+    } catch {
+      /* DMV access denied — version/settings above are still useful */
+    }
   }
 
   return info;
@@ -183,8 +251,7 @@ export async function exportTable(
   format: 'csv' | 'json',
   outPath: string,
 ): Promise<{ file: string; rows: number; bytes: number }> {
-  const q = db.dialect === 'mysql' ? '`' : '"';
-  const res = await db.execute(`SELECT * FROM ${q}${table.replace(new RegExp(q, 'g'), q + q)}${q}`);
+  const res = await db.execute(`SELECT * FROM ${quoteIdent(db.dialect, table)}`);
   const content = format === 'csv' ? toCsv(res.columns, res.rows) : toJson(res.columns, res.rows);
   await writeFile(outPath, content, 'utf8');
   return { file: outPath, rows: res.rows.length, bytes: Buffer.byteLength(content) };
@@ -240,30 +307,37 @@ export async function importCsv(
 
   // Optionally create the table from header types (all TEXT unless numeric).
   if (opts.createTable) {
-    const q = db.dialect === 'mysql' ? '`' : '"';
+    const colType = db.dialect === 'sqlserver' ? 'NVARCHAR(MAX)' : 'TEXT';
     const colDefs = headers
-      .map((h) => `${q}${h.replace(new RegExp(q, 'g'), q + q)}${q} TEXT`)
+      .map((h) => `${quoteIdent(db.dialect, h)} ${colType}`)
       .join(', ');
-    await db.execute(`CREATE TABLE ${q}${table}${q} (${colDefs})`);
+    await db.execute(`CREATE TABLE ${quoteIdent(db.dialect, table)} (${colDefs})`);
   }
 
-  const q = db.dialect === 'mysql' ? '`' : '"';
-  const cols = headers.map((h) => `${q}${h.replace(new RegExp(q, 'g'), q + q)}${q}`).join(', ');
+  const cols = headers.map((h) => quoteIdent(db.dialect, h)).join(', ');
   const placeholders =
     db.dialect === 'postgres'
       ? headers.map((_, i) => `$${i + 1}`).join(', ')
-      : headers.map(() => '?').join(', ');
-  const sql = `INSERT INTO ${q}${table}${q} (${cols}) VALUES (${placeholders})`;
+      : db.dialect === 'sqlserver'
+        ? headers.map((_, i) => `@p${i}`).join(', ')
+        : headers.map(() => '?').join(', ');
+  const sql = `INSERT INTO ${quoteIdent(db.dialect, table)} (${cols}) VALUES (${placeholders})`;
 
-  // Batch inserts through the driver's execute() — one statement per call.
+  // Batch inserts through the driver — one statement per call.
   let inserted = 0;
   for (const row of rows) {
-    // sqlite (node:sqlite) and mysql accept ?; pg accepts $n — normalize below.
+    // sqlite (node:sqlite) and mysql accept ?; pg accepts $n; sqlserver uses
+    // named @p0..@pn inputs — pick the right wiring per dialect.
     if (db.dialect === 'postgres') {
       await (db as any).pool.query(sql, row);
     } else if (db.dialect === 'mysql') {
       const conn = await (db as any).ensureConnection();
       await conn.execute(sql, row);
+    } else if (db.dialect === 'sqlserver') {
+      const pool = await (db as any).ensurePool();
+      const req = pool.request();
+      row.forEach((v, i) => req.input(`p${i}`, v));
+      await req.query(sql);
     } else {
       (db as any).db.prepare(sql).run(...row);
     }
@@ -294,6 +368,42 @@ export async function backup(
 
   if (db.dialect === 'postgres') {
     return runDumpTool('pg_dump', [], db, outPath, 'pg_dump');
+  }
+  if (db.dialect === 'sqlserver') {
+    // BACKUP DATABASE runs on the server: the file lands in the server's
+    // filesystem, which is the same machine only for local instances.
+    const pool = await (db as any).ensurePool();
+    const abs = path.resolve(outPath);
+    const nameRes = await pool.request().query('SELECT DB_NAME() AS [db]');
+    const dbName = String(nameRes.recordset?.[0]?.db ?? '');
+    const backupSql =
+      `BACKUP DATABASE [${dbName.replace(/\]/g, ']]')}] TO DISK = N'${abs.replace(/'/g, "''")}' ` +
+      'WITH INIT, STATS = 5';
+    try {
+      // per-request override: the pool default (30s) is too short for backups
+      const req = pool.request({ requestTimeout: 600_000 });
+      await req.query(backupSql);
+    } catch (err) {
+      throw new Error(
+        `BACKUP DATABASE failed: ${(err as Error).message} ` +
+          'The .bak path is resolved on the SQL Server host, and the service account must be able to write there ' +
+          '(for Docker/remote instances use a server-side path, e.g. via SSMS or sqlcmd).',
+      );
+    }
+    let bytes = 0;
+    try {
+      bytes = statSync(abs).size;
+    } catch {
+      /* created on the server host, not visible from here */
+    }
+    return {
+      file: bytes > 0 ? outPath : abs,
+      bytes,
+      method:
+        bytes > 0
+          ? 'BACKUP DATABASE'
+          : 'BACKUP DATABASE (file created on the SQL Server host)',
+    };
   }
   return runDumpTool('mysqldump', [], db, outPath, 'mysqldump');
 }

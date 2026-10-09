@@ -99,8 +99,9 @@ export function createSystemToolRegistry(
     guard('backup');
     const requested = typeof args.file === 'string' && args.file.trim() ? args.file.trim() : undefined;
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const ext = db.dialect === 'sqlserver' ? '.bak' : '.sql';
     const file = await outPath(
-      requested ?? `backup-${db.dialect}-${stamp}.sql`,
+      requested ?? `backup-${db.dialect}-${stamp}${ext}`,
     );
     return backup(db, resolveUserPath(file));
   });

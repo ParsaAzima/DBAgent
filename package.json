@@ -1,7 +1,7 @@
 {
   "name": "dbagent",
   "version": "0.2.0",
-  "description": "AI-powered database agent — talk to your SQL databases in natural language (SQLite, PostgreSQL, MySQL)",
+  "description": "AI-powered database agent — talk to your SQL databases in natural language (SQLite, PostgreSQL, MySQL, SQL Server)",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -24,7 +24,9 @@
     "test:md": "tsx scripts/markdown-render-check.tsx",
     "test:system": "npm run build && node scripts/smoke-system.mjs",
     "test:fileshell": "npm run build && node scripts/smoke-file-shell.mjs",
-    "test": "npm run typecheck && npm run test:smoke && npm run test:e2e && npm run test:stream && npm run test:tui && npm run test:md && npm run test:system && npm run test:fileshell",
+    "test:sqlserver": "npm run build && node scripts/smoke-sqlserver.mjs",
+    "test:perf": "npm run build && node scripts/smoke-perf.mjs",
+    "test": "npm run typecheck && npm run test:smoke && npm run test:e2e && npm run test:stream && npm run test:tui && npm run test:md && npm run test:system && npm run test:fileshell && npm run test:sqlserver && npm run test:perf",
     "demo": "npm run build && node scripts/make-demo-sqlite.mjs && node dist/cli.js chat --db sqlite://./demo.db --provider openai"
   },
   "keywords": [
@@ -34,6 +36,9 @@
     "sql",
     "postgres",
     "mysql",
+    "sqlserver",
+    "mssql",
+    "t-sql",
     "sqlite",
     "llm",
     "text-to-sql"
@@ -45,6 +50,7 @@
     "ink": "^7.1.1",
     "ink-text-input": "^6.0.0",
     "marked": "^18.0.14",
+    "mssql": "^12.7.4",
     "mysql2": "^3.11.0",
     "pg": "^8.13.0",
     "react": "^19.3.0"
@@ -53,6 +59,7 @@
     "better-sqlite3": "^11.3.0"
   },
   "devDependencies": {
+    "@types/mssql": "^12.3.0",
     "@types/node": "^22.7.0",
     "@types/pg": "^8.11.0",
     "tsx": "^4.19.0",

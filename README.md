@@ -12,19 +12,20 @@ An AI-powered database agent with a professional terminal UI — inspect, query,
                               OpenAI    OpenRouter      Anthropic  Gemini · Ollama
                                  (provider-agnostic loop, streaming, abortable)
                                                    │ DatabaseDriver interface
-                                 ┌───────────┬─────┴────────┐
-                                 ▼           ▼              ▼
-                               SQLite    PostgreSQL       MySQL
+                                 ┌──────────┬──────┴────────┬───────────┐
+                                 ▼          ▼               ▼           ▼
+                               SQLite   PostgreSQL         MySQL   SQL Server
 ```
 
 ## Highlights
 
 - **5 LLM providers** — OpenAI, OpenRouter (one key, hundreds of models as `vendor/model`), Anthropic, Google Gemini, Ollama (local), plus any OpenAI-compatible gateway (LM Studio, vLLM, ...)
-- **3 databases** — SQLite, PostgreSQL, MySQL with full schema introspection
+- **4 databases** — SQLite, PostgreSQL, MySQL, SQL Server (T-SQL) with full schema introspection
+- **Performance-first agent** — `performance_report` (broken/disabled/invalid, missing, unused and duplicate indexes · cache hit · wait stats · top expensive queries · blocking · bloat) and `explain_query` (dialect-aware plan analysis) are core tools; the system prompt makes performance the primary workflow
 - **Claude-Code-class TUI** — streaming markdown, collapsible tool blocks, interactive table viewer, live token/cost status bar
 - **Token-level streaming** — SSE for all providers, cancel any response with `Esc`
 - **Hard safety rails** — read-only by default, enforced LIMIT, single-statement rule, DROP/ALTER always blocked, path sandbox, permission tiers
-- **System operations** — stats, server info, CSV/JSON export, CSV import, backups (`VACUUM INTO`, `pg_dump`, `mysqldump`), local database discovery
+- **System operations** — stats, server info, CSV/JSON export, CSV import, backups (`VACUUM INTO`, `pg_dump`, `mysqldump`, `BACKUP DATABASE`), local database discovery
 - **File & shell tools** — read/write/edit/glob/grep files, run shell commands, behind explicit opt-in gates
 - **Persistent sessions** — full transcript (tool results, usage, timestamps) auto-saved and restorable with `--resume`
 
@@ -60,6 +61,7 @@ dbagent discover
 # Then connect directly
 dbagent chat --db "postgres://user:pass@localhost:5432/mydb" --provider openrouter
 dbagent chat --db "mysql://user:pass@localhost:3306/shop" --provider anthropic
+dbagent chat --db "sqlserver://sa:pass@localhost:1433/mydb?encrypt=true" --provider gemini
 dbagent chat --db sqlite://D:/data/mydb.sqlite --provider gemini
 ```
 
@@ -103,7 +105,7 @@ dbagent sessions list|rm <id>     (manage saved sessions)
 
 Provider ids: `openai` · `openrouter` · `anthropic` · `gemini` · `ollama`
 
-Database URLs: `sqlite://./app.db` · `postgres://user:pass@host:5432/db?ssl=true` · `mysql://user:pass@host:3306/db`
+Database URLs: `sqlite://./app.db` · `postgres://user:pass@host:5432/db?ssl=true` · `mysql://user:pass@host:3306/db` · `sqlserver://user:pass@host:1433/db?encrypt=true&trustServerCertificate=false` (named instance: `&instance=SQLEXPRESS`)
 
 ## Agent tools
 
@@ -116,6 +118,8 @@ Database URLs: `sqlite://./app.db` · `postgres://user:pass@host:5432/db?ssl=tru
 | `sample_rows` | Peek at the first N rows of a table |
 | `query` | Run read-only SQL (LIMIT auto-enforced) |
 | `execute` | Run INSERT/UPDATE/DELETE (only with `--allow-writes`) |
+| `performance_report` | Dialect-aware diagnostics: broken/disabled/invalid indexes, missing indexes, unused/duplicate indexes, cache hit ratio, waits, top queries, blocking, bloat (`deep: true` adds fragmentation scans) |
+| `explain_query` | Run the dialect's plan analyzer on one read-only statement (SQLite `EXPLAIN QUERY PLAN`, PostgreSQL `EXPLAIN [ANALYZE]`, MySQL `EXPLAIN`, SQL Server `SET STATISTICS PROFILE`) |
 
 **System mode (`--allow-system`)**
 
@@ -125,7 +129,7 @@ Database URLs: `sqlite://./app.db` · `postgres://user:pass@host:5432/db?ssl=tru
 | `system_info` | Server version, uptime, active connections, key settings |
 | `export_data` | Dump any table to CSV/JSON under `./dbagent-out/` |
 | `import_csv` | Load a CSV into a table, auto-creating it from headers (also needs `--allow-writes`) |
-| `backup` | SQLite: `VACUUM INTO` · PostgreSQL: `pg_dump` · MySQL: `mysqldump` |
+| `backup` | SQLite: `VACUUM INTO` · PostgreSQL: `pg_dump` · MySQL: `mysqldump` · SQL Server: `BACKUP DATABASE` (the `.bak` is written on the server host) |
 | `discover_local_databases` | Probe local servers, scan for SQLite files, check client tools |
 | `read_file` / `write_file` / `edit_file` | Read (paged, 512 KB cap), create (overwrite-protected), surgical-edit files |
 | `list_dir` / `glob_files` / `grep_files` | Navigate and search the project (`node_modules` skipped) |
@@ -136,6 +140,25 @@ Database URLs: `sqlite://./app.db` · `postgres://user:pass@host:5432/db?ssl=tru
 | Tool | Purpose |
 |---|---|
 | `bash` | Run shell commands (psql, migration runners, git...) with a hard 30 s timeout (max 120 s), capped output, sandboxed cwd |
+
+## Performance analysis
+
+Performance work is the agent's primary workflow. A typical session:
+
+```bash
+dbagent chat --db "postgres://user:pass@host:5432/prod" --provider openrouter
+```
+
+1. Ask *"why is this slow?"* — the agent starts with `performance_report`, which runs a per-dialect diagnostic catalog (each section best-effort: a missing system view or privilege degrades to an error note, never a failed report).
+2. For a suspect query it runs `explain_query` on the exact SQL — plans come back as rows the agent can interpret (full scans, missing indexes, estimate gaps, sort/temp spills).
+3. Recommendations come with evidence and trade-offs: exact `CREATE INDEX` / `DROP INDEX` / `REINDEX` / `REBUILD` SQL, write and maintenance cost, and the constraint checks that prevent bad drops (unique/FK-backing indexes are excluded from "unused" lists). Nothing is executed — DDL stays blocked.
+
+| Dialect | Highlights in the report |
+|---|---|
+| SQL Server | `dm_db_missing_index_*`, disabled indexes, usage stats, duplicates, fragmentation (`deep`), wait stats, top queries by reads, blocking, buffer cache hit |
+| PostgreSQL | invalid indexes (`indisvalid`), unused/duplicate indexes, seq-scan hotspots, dead tuples/autovacuum, cache hit, long queries, `pg_stat_statements` |
+| MySQL | `sys` unused/redundant indexes, full-scan and slow statements, InnoDB buffer hit, temp-disk counters, table free space |
+| SQLite | page/freelist space, index inventory, `sqlite_stat1` (ANALYZE) stats, per-object sizes (`deep`) |
 
 ## Safety model
 
@@ -206,10 +229,11 @@ await db.close();
 ```bash
 npm run dev          # run the CLI from source (tsx)
 npm run build        # compile to dist/
-npm test             # full suite (65+ checks):
+npm test             # full suite (130+ checks):
                      #   typecheck · agent-loop smoke · e2e over HTTP (mock
                      #   OpenAI + OpenRouter) · SSE streaming e2e · TUI render
                      #   · markdown render · system ops · file/shell tools
+                     #   · SQL Server dialect · performance diagnostics
 npm run demo:seed    # regenerate demo.db
 ```
 
@@ -221,11 +245,11 @@ Test suites run without any real API keys — LLMs are scripted or served by a l
 src/
   core/       agent loop, shared types, config, system prompt
   llm/        adapters (OpenAI-compatible/OpenRouter, Anthropic, Gemini) + SSE streaming
-  db/         drivers (SQLite, PostgreSQL, MySQL), SQL guardrails, URL factory
+  db/         drivers (SQLite, PostgreSQL, MySQL, SQL Server), SQL guardrails, URL factory
   tools/      tool registry: core DB tools, system tools, file tools, shell
   session/    transcript persistence
   tui/        Ink/React UI: app, components, markdown renderer, table viewer
-  system/     stats/export/import/backup ops, local discovery, path sandbox
+  system/     stats/export/import/backup ops, performance diagnostics, local discovery, path sandbox
 scripts/      demo seeding + smoke/e2e test suites
 ```
 
