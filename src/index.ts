@@ -21,3 +21,5 @@ export { createLLMAdapter, assertApiKeyPresent } from './llm/factory.js';
 export { createDatabaseDriver, parseDatabaseUrl } from './db/factory.js';
 export { buildTools } from './tools/index.js';
 export { saveSession, loadSession, listSessions, deleteSession } from './session/store.js';
+export { appendAudit, auditLogPath, createAuditSink } from './system/audit.js';
+export { estimateWriteImpact, extractWriteTables, hasNoWhere } from './system/impact.js';

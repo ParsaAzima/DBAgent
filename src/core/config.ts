@@ -29,6 +29,8 @@ export interface ResolvedConfig {
   allowWrites: boolean;
   allowSystem: boolean;
   allowShell: boolean;
+  /** Auto-confirm write prompts (non-interactive use). Default false. */
+  assumeYes: boolean;
   maxRows: number;
   maxRounds: number;
   timeoutMs: number;
@@ -72,6 +74,7 @@ export function resolveConfig(opts: {
   allowWritesFlag?: boolean;
   allowSystemFlag?: boolean;
   allowShellFlag?: boolean;
+  assumeYesFlag?: boolean;
   maxRowsFlag?: number;
 }): ResolvedConfig {
   const provider = parseProvider(opts.providerFlag ?? process.env.DBAGENT_PROVIDER) ?? 'openai';
@@ -100,6 +103,7 @@ export function resolveConfig(opts: {
     allowWrites: opts.allowWritesFlag ?? bool(process.env.DBAGENT_ALLOW_WRITES, false),
     allowSystem: opts.allowSystemFlag ?? bool(process.env.DBAGENT_ALLOW_SYSTEM, false),
     allowShell: opts.allowShellFlag ?? bool(process.env.DBAGENT_ALLOW_SHELL, false),
+    assumeYes: opts.assumeYesFlag ?? bool(process.env.DBAGENT_ASSUME_YES, false),
     maxRows: opts.maxRowsFlag ?? num(process.env.DBAGENT_MAX_ROWS, 100),
     maxRounds: num(process.env.DBAGENT_MAX_ROUNDS, 12),
     timeoutMs: num(process.env.DBAGENT_TIMEOUT_MS, 120_000),

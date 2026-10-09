@@ -11,6 +11,7 @@
 
 import type {
   AgentMessage,
+  AgentHooks,
   DatabaseDriver,
   LLMResponse,
   LLMProviderConfig,
@@ -60,18 +61,31 @@ export class Agent {
   private readonly tools: ToolSpec[];
   private readonly registry: Map<string, (args: Record<string, unknown>) => Promise<unknown>>;
   private history: AgentMessage[];
+  /**
+   * Runtime hooks shared by reference with the CLI: the CLI/TUI installs
+   * confirm + audit handlers after construction (e.g. the TUI gate needs
+   * React state), and tool handlers read them at call time.
+   */
+  readonly hooks: AgentHooks;
 
   constructor(
     private readonly llm: LLMAdapter,
     private readonly db: DatabaseDriver,
     private readonly providerConfig: LLMProviderConfig,
     private readonly maxRounds = 12,
-    opts: { allowSystem?: boolean; allowWrites?: boolean; allowShell?: boolean } = {},
+    opts: {
+      allowSystem?: boolean;
+      allowWrites?: boolean;
+      allowShell?: boolean;
+      hooks?: AgentHooks;
+    } = {},
   ) {
+    this.hooks = opts.hooks ?? {};
     const built = buildTools(db, {
       allowSystem: opts.allowSystem ?? false,
       allowWrites: opts.allowWrites ?? false,
       allowShell: opts.allowShell ?? false,
+      hooks: this.hooks,
     });
     this.tools = built.tools;
     this.registry = built.registry;

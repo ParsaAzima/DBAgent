@@ -91,6 +91,8 @@ const { unmount, waitUntilExit } = render(
     provider="openai"
     model="mock-model"
     allowWrites={false}
+    assumeYes={true}
+    hooks={{}}
     maxRows={100}
     sessionLabel="tui-check"
     onSave={() => {}}

@@ -12,7 +12,13 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Box, Text, useApp, useInput } from 'ink';
 import type { Agent, AgentTurnResult } from '../core/agent.js';
-import type { AgentTurnEvent, LLMProviderId, TokenUsage } from '../core/types.js';
+import type {
+  AgentHooks,
+  AgentTurnEvent,
+  LLMProviderId,
+  TokenUsage,
+  WriteConfirmRequest,
+} from '../core/types.js';
 import type { DatabaseDriver } from '../core/types.js';
 import { Transcript, LiveTurn, StatusBar } from './components.js';
 import { TableView, pickLatestTable } from './table-viewer.js';
@@ -33,6 +39,10 @@ export interface TuiProps {
   provider: LLMProviderId;
   model: string;
   allowWrites: boolean;
+  /** Skip the y/n write gate (operator passed --yes). */
+  assumeYes: boolean;
+  /** Shared-by-reference hooks; the TUI installs its confirm gate here. */
+  hooks: AgentHooks;
   maxRows: number;
   sessionLabel: string;
   /** Restored transcript from a previous session (rendered before anything). */
@@ -65,6 +75,13 @@ export function Tui(props: TuiProps): React.ReactElement {
   const [showTable, setShowTable] = useState(false);
   const [toolDetail, setToolDetail] = useState(false);
   const [tick, setTick] = useState(0);
+  /** Pending write approval: resolves the confirm gate on y/n. */
+  const [pending, setPending] = useState<{
+    req: WriteConfirmRequest;
+    resolve: (v: boolean) => void;
+  } | null>(null);
+  const pendingRef = useRef<typeof pending>(null);
+  pendingRef.current = pending;
   const abortRef = useRef<AbortController | null>(null);
   const itemsRef = useRef(items);
   itemsRef.current = items;
@@ -81,6 +98,37 @@ export function Tui(props: TuiProps): React.ReactElement {
   const push = useCallback((item: TranscriptItem) => {
     setItems((prev) => [...prev, item]);
   }, []);
+
+  /* ── write-approval gate: y/n answers resolve the tool's confirm hook ── */
+  const confirmGate = useCallback(
+    (req: WriteConfirmRequest) =>
+      new Promise<boolean>((resolve) => {
+        setPending({ req, resolve });
+      }),
+    [],
+  );
+  useEffect(() => {
+    if (props.assumeYes) return;
+    const prev = props.hooks.confirm;
+    props.hooks.confirm = confirmGate;
+    return () => {
+      if (props.hooks.confirm === confirmGate) props.hooks.confirm = prev;
+    };
+  }, [confirmGate, props.assumeYes, props.hooks]);
+
+  const answerPending = useCallback(
+    (approved: boolean) => {
+      const p = pendingRef.current;
+      if (!p) return;
+      setPending(null);
+      push({
+        role: 'info',
+        text: approved ? `✓ confirmed ${p.req.tool}` : `✗ denied ${p.req.tool} — statement not run`,
+      });
+      p.resolve(approved);
+    },
+    [push],
+  );
 
   /* ── banner ── */
   useEffect(() => {
@@ -206,7 +254,7 @@ export function Tui(props: TuiProps): React.ReactElement {
     async (raw: string) => {
       const input = raw.trim();
       if (!input) return;
-      if (live.busy) return;
+      if (live.busy || pendingRef.current) return;
 
       if (input === '/exit' || input === '/quit') {
         props.onSave?.(itemsRef.current);
@@ -294,6 +342,11 @@ export function Tui(props: TuiProps): React.ReactElement {
   );
 
   useInput((input, key) => {
+    if (pendingRef.current) {
+      if (input === 'y' || input === 'Y') answerPending(true);
+      else if (input === 'n' || input === 'N' || key.escape) answerPending(false);
+      return;
+    }
     if (key.escape && live.busy) {
       abortRef.current?.abort();
       return;
@@ -329,6 +382,24 @@ export function Tui(props: TuiProps): React.ReactElement {
           result={pickLatestTable([...live.tools, ...items.flatMap((i) => i.tools ?? [])])!}
           onClose={() => setShowTable(false)}
         />
+      ) : pending ? (
+        <Box marginTop={1} flexDirection="column">
+          <Text bold>
+            Confirm {pending.req.tool} ({pending.req.kind}
+            {pending.req.tables.length > 0 ? ` on ${pending.req.tables.join(', ')}` : ''})
+          </Text>
+          {pending.req.impactEstimate ? <Text>Impact: {pending.req.impactEstimate}</Text> : null}
+          {pending.req.noWhereWarning ? (
+            <Text color="red">WARNING: no WHERE clause — this affects the whole table!</Text>
+          ) : null}
+          <Text>
+            SQL:{' '}
+            {pending.req.sql.length > 400 ? pending.req.sql.slice(0, 400) + '…' : pending.req.sql}
+          </Text>
+          <Text>
+            Press <Text bold>y</Text> to run · <Text bold>n</Text> to deny
+          </Text>
+        </Box>
       ) : (
         <Box marginTop={1}>
           <ChatInput onSubmit={handleSubmit} disabled={live.busy} />

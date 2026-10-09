@@ -6,11 +6,13 @@
  * bypasses this layer.
  */
 
-import type { DatabaseDriver, ToolSpec } from '../core/types.js';
+import type { AgentHooks, DatabaseDriver, QueryResult, ToolSpec } from '../core/types.js';
 import { createSystemToolRegistry, type SystemToolDeps } from './system-tools.js';
 import { createFileToolRegistry, type FileToolDeps } from './file-tools.js';
 import { createShellToolRegistry, type ShellToolDeps } from './shell-tool.js';
 import { runExplain, runPerformanceReport } from '../system/perf.js';
+import { classifyStatement } from '../db/guard.js';
+import { estimateWriteImpact, extractWriteTables, hasNoWhere } from '../system/impact.js';
 
 export type ToolHandler = (args: Record<string, unknown>) => Promise<unknown>;
 
@@ -25,9 +27,55 @@ export interface BuildToolsOptions {
   allowWrites?: boolean;
   /** Enable the bash shell tool (separate, stronger gate). */
   allowShell?: boolean;
+  /**
+   * Runtime hooks shared by reference with the Agent/CLI: audit sink for
+   * every SQL statement and the human-confirmation gate for writes.
+   * Read at call time, so the CLI may install handlers after construction.
+   */
+  hooks?: AgentHooks;
 }
 
 export function buildTools(db: DatabaseDriver, opts: BuildToolsOptions = {}): BuiltTools {
+  /**
+   * Run a SQL tool with audit logging. Failures (including driver write
+   * blocks) are logged too — the audit trail covers attempts, not just
+   * successes.
+   */
+  async function runAudited(
+    tool: string,
+    sql: string | undefined,
+    detail: string | undefined,
+    fn: () => Promise<QueryResult>,
+    confirmed?: boolean,
+  ): Promise<QueryResult> {
+    const t0 = Date.now();
+    try {
+      const res = await fn();
+      opts.hooks?.audit?.({
+        tool,
+        ...(sql !== undefined ? { sql } : {}),
+        ...(detail !== undefined ? { detail } : {}),
+        ok: true,
+        rowCount: res.rowCount,
+        durationMs: Date.now() - t0,
+        ...(confirmed !== undefined ? { confirmed } : {}),
+      });
+      return res;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      opts.hooks?.audit?.({
+        tool,
+        ...(sql !== undefined ? { sql } : {}),
+        ...(detail !== undefined ? { detail } : {}),
+        ok: false,
+        error: message.slice(0, 500),
+        durationMs: Date.now() - t0,
+        ...(confirmed !== undefined ? { confirmed } : {}),
+      });
+      throw err;
+    }
+  }
+
   const tools: ToolSpec[] = [
     {
       name: 'list_tables',
@@ -129,7 +177,7 @@ export function buildTools(db: DatabaseDriver, opts: BuildToolsOptions = {}): Bu
     {
       name: 'execute',
       description:
-        'Run a single data-modifying statement (INSERT/UPDATE/DELETE). Only available when write mode is enabled; otherwise it fails.',
+        'Run a single data-modifying statement (INSERT/UPDATE/DELETE). Needs write mode AND explicit human confirmation: the operator sees the SQL plus an impact estimate and approves each run. Every call is audit-logged.',
       parameters: {
         type: 'object',
         description: 'Arguments for execute.',
@@ -233,7 +281,9 @@ export function buildTools(db: DatabaseDriver, opts: BuildToolsOptions = {}): Bu
         if (!name) throw new Error('sample_rows requires "table".');
         if (!Number.isFinite(limit) || limit < 1)
           throw new Error('"limit" must be a positive number.');
-        return db.sampleRows(name, limit);
+        return runAudited('sample_rows', undefined, `table=${name} limit=${limit}`, () =>
+          db.sampleRows(name, limit),
+        );
       },
     ],
     [
@@ -241,7 +291,7 @@ export function buildTools(db: DatabaseDriver, opts: BuildToolsOptions = {}): Bu
       async (args) => {
         const sql = String(args.sql ?? '').trim();
         if (!sql) throw new Error('query requires "sql".');
-        return db.execute(sql);
+        return runAudited('query', sql, undefined, () => db.execute(sql));
       },
     ],
     [
@@ -249,7 +299,43 @@ export function buildTools(db: DatabaseDriver, opts: BuildToolsOptions = {}): Bu
       async (args) => {
         const sql = String(args.sql ?? '').trim();
         if (!sql) throw new Error('execute requires "sql".');
-        return db.execute(sql);
+        // Writes stay driver-gated: without write mode the driver rejects
+        // with the standard blocked error (and the denial is audited).
+        if (!opts.allowWrites) {
+          return runAudited('execute', sql, undefined, () => db.execute(sql));
+        }
+        const kind = classifyStatement(sql);
+        const label = /^\s*INSERT\b/i.test(sql)
+          ? 'insert'
+          : /^\s*UPDATE\b/i.test(sql)
+            ? 'update'
+            : /^\s*DELETE\b/i.test(sql)
+              ? 'delete'
+              : kind;
+        const request = {
+          tool: 'execute',
+          sql,
+          kind: label,
+          tables: extractWriteTables(sql),
+          noWhereWarning: hasNoWhere(sql),
+          impactEstimate: await estimateWriteImpact(db, sql),
+        };
+        // Default-deny: non-interactive sessions (ask without --yes) have no
+        // confirm handler, so writes can never slip through unattended.
+        const confirmed = opts.hooks?.confirm ? await opts.hooks.confirm(request) : false;
+        if (!confirmed) {
+          const error = 'Write cancelled: the operator did not confirm this statement.';
+          opts.hooks?.audit?.({
+            tool: 'execute',
+            sql,
+            ok: false,
+            error,
+            durationMs: 0,
+            confirmed: false,
+          });
+          throw new Error(error);
+        }
+        return runAudited('execute', sql, undefined, () => db.execute(sql), true);
       },
     ],
     ['performance_report', async (args) => runPerformanceReport(db, { deep: !!args.deep })],

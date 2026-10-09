@@ -106,7 +106,7 @@ export async function buildSystemPrompt(
       '; the guardrail also enforces one.',
     '- One statement per query call.',
     writesAllowed
-      ? '- Writes (INSERT/UPDATE/DELETE) are ENABLED by the operator; use them only when the user asks for a change. DROP/ALTER/TRUNCATE are always blocked.'
+      ? '- Writes (INSERT/UPDATE/DELETE) are ENABLED by the operator, but every execute call pauses for explicit human confirmation (the operator sees the SQL plus an impact estimate and answers y/n). DROP/ALTER/TRUNCATE are always blocked. Every statement is audit-logged.'
       : '- Read-only mode: never attempt to modify data. If the user asks for changes, explain that write mode is disabled.',
     '- Never embed API keys, passwords or other secrets in SQL.',
     systemAllowed

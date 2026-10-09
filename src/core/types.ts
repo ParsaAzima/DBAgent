@@ -220,6 +220,60 @@ export interface SafetyConfig {
   maxStatements?: number;
 }
 
+/** Human-approval request before a mutating tool runs. */
+export interface WriteConfirmRequest {
+  /** Tool asking for approval ('execute', later 'apply_ddl'). */
+  tool: string;
+  /** Full SQL awaiting approval. */
+  sql: string;
+  /** insert | update | delete | ddl | other. */
+  kind: string;
+  /** Target tables extracted best-effort from the SQL. */
+  tables: string[];
+  /** True when an UPDATE/DELETE has no WHERE clause. */
+  noWhereWarning: boolean;
+  /** Heuristic impact line (est. affected rows), when computable. */
+  impactEstimate?: string;
+}
+
+/** Resolve true to run the statement, false to cancel it. */
+export type ConfirmHandler = (req: WriteConfirmRequest) => Promise<boolean>;
+
+/** One audit-log row: every SQL statement through the agent tools. */
+export interface AuditEntry {
+  ts: string;
+  sessionId: string;
+  /** Redacted connection target (no credentials). */
+  dbTarget: string;
+  tool: string;
+  sql?: string;
+  /** Extra context for non-SQL tools (e.g. sampled table/limit). */
+  detail?: string;
+  ok: boolean;
+  error?: string;
+  rowCount?: number;
+  durationMs: number;
+  /** Present for mutating tools: was the human prompt confirmed? */
+  confirmed?: boolean;
+  /** Present when PII masking applied to the result. */
+  maskedColumns?: string[];
+  /** Present when the caller explicitly bypassed PII masking. */
+  unmasked?: boolean;
+}
+
+/** What tool handlers report; the sink/session layer adds ts + routing. */
+export type AuditDraft = Omit<AuditEntry, 'ts' | 'sessionId' | 'dbTarget'>;
+
+/** Best-effort sink; implementations must never throw. */
+export type AuditSink = (entry: AuditDraft) => void;
+
+/** Runtime hooks shared by reference between Agent, tools and the CLI. */
+export interface AgentHooks {
+  confirm?: ConfirmHandler;
+  audit?: AuditSink;
+  sessionId?: string;
+}
+
 /** Database adapters must implement this interface. */
 export interface DatabaseDriver {
   readonly dialect: DatabaseDialect;

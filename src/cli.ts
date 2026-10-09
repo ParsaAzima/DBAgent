@@ -11,6 +11,8 @@
 import { createInterface } from 'node:readline';
 import { Command } from 'commander';
 import { Agent } from './core/agent.js';
+import type { AgentHooks } from './core/types.js';
+import { createAuditSink } from './system/audit.js';
 import { loadDotEnv, resolveConfig, PROVIDER_IDS } from './core/config.js';
 import { assertApiKeyPresent, createLLMAdapter } from './llm/factory.js';
 import { createDatabaseDriver } from './db/factory.js';
@@ -57,6 +59,7 @@ program
   .option('--provider <id>', `LLM provider (${PROVIDER_IDS.join('|')})`)
   .option('--model <name>', 'Model name override')
   .option('--allow-writes', 'Enable INSERT/UPDATE/DELETE (read-only by default)', false)
+  .option('--yes', 'Auto-confirm write prompts (dangerous: no y/n gate)', false)
   .option(
     '--allow-system',
     'Enable system tools (stats/export/import/backup/discover/files)',
@@ -77,6 +80,7 @@ program
         allowWritesFlag: opts.allowWrites,
         allowSystemFlag: opts.allowSystem,
         allowShellFlag: opts.allowShell,
+        assumeYesFlag: opts.yes,
         maxRowsFlag: opts.maxRows,
       });
     } catch (err) {
@@ -118,11 +122,18 @@ program
     }
 
     const llm = createLLMAdapter(cfg.llm);
+    // Shared-by-reference hooks: audit is wired now, the write-confirm gate
+    // is installed by the TUI (interactive y/n box) or the plain REPL below.
+    // --yes short-circuits confirmation (still audit-logged as confirmed).
+    const hooks: AgentHooks = {};
+    if (cfg.assumeYes) hooks.confirm = async () => true;
     const agent = new Agent(llm, db, cfg.llm, cfg.maxRounds, {
       allowSystem: cfg.allowSystem,
       allowWrites: cfg.allowWrites,
       allowShell: cfg.allowShell,
+      hooks,
     });
+    hooks.audit = createAuditSink({ sessionId, dbTarget: db.describeTarget() });
     // Restore prior transcript into the agent.
     for (const msg of history) {
       (agent as any).history.push(msg);
@@ -161,6 +172,8 @@ program
         provider: cfg.llm.id,
         model: cfg.llm.model,
         allowWrites: cfg.allowWrites,
+        assumeYes: cfg.assumeYes,
+        hooks,
         maxRows: cfg.maxRows,
         sessionLabel: sessionId,
         initialItems: tuiItems as never,
@@ -176,10 +189,26 @@ program
     console.log(
       `  Mode    : ${cfg.allowWrites ? 'READ+WRITE' : 'READ-ONLY'} (max ${cfg.maxRows ?? 100} rows)`,
     );
+    console.log(
+      `  Confirm : ${cfg.allowWrites ? (cfg.assumeYes ? 'auto-yes (--yes)' : 'interactive y/n') : 'n/a (read-only)'}`,
+    );
+    console.log(`  Audit   : all SQL → ~/.dbagent/audit.log`);
     console.log(`  Session : ${sessionId}`);
     console.log(`Commands: /exit  /reset  /save  /schema  /refresh  /help\n`);
 
     const rl = createInterface({ input: process.stdin, output: process.stdout });
+    if (!cfg.assumeYes) {
+      hooks.confirm = (req) =>
+        new Promise<boolean>((resolve) => {
+          const where = req.tables.length > 0 ? ` on ${req.tables.join(', ')}` : '';
+          console.log(`\nConfirm ${req.tool} (${req.kind}${where})`);
+          if (req.impactEstimate) console.log(`  Impact: ${req.impactEstimate}`);
+          if (req.noWhereWarning)
+            console.log('  WARNING: no WHERE clause — this affects the whole table!');
+          console.log(`  SQL: ${req.sql.length > 500 ? req.sql.slice(0, 500) + '…' : req.sql}`);
+          rl.question('Execute? [y/N] ', (answer) => resolve(/^y(es)?$/i.test(answer.trim())));
+        });
+    }
     const prompt = () => rl.question('you > ', (answer) => void handleInput(answer.trim()));
 
     const handleInput = async (input: string): Promise<void> => {
@@ -278,6 +307,7 @@ program
   .option('--model <name>', 'Model name override')
   .option('--allow-writes', 'Enable writes (discouraged for one-shots)', false)
   .option('--allow-system', 'Enable system tools (stats/export/import/backup/discover)', false)
+  .option('--yes', 'Auto-confirm write prompts (dangerous: no y/n gate)', false)
   .option('--max-rows <n>', 'Hard LIMIT for read queries', parseInt)
   .action(async (question, opts) => {
     loadDotEnv();
@@ -289,6 +319,7 @@ program
         dbUrlFlag: opts.db,
         allowWritesFlag: opts.allowWrites,
         allowSystemFlag: opts.allowSystem,
+        assumeYesFlag: opts.yes,
         maxRowsFlag: opts.maxRows,
       });
     } catch (err) {
@@ -297,14 +328,21 @@ program
     }
     try {
       assertApiKeyPresent(cfg.llm);
+      // No confirm handler unless --yes: writes are denied in non-interactive
+      // mode instead of hanging on a prompt nobody can answer.
+      const hooks: AgentHooks = {};
+      if (cfg.assumeYes) hooks.confirm = async () => true;
+      const askId = `ask-${randomUUID().slice(0, 8)}`;
       const result = await withDb(
         cfg.dbUrl,
         { allowWrites: cfg.allowWrites, maxRows: cfg.maxRows },
         async (db) => {
+          hooks.audit = createAuditSink({ sessionId: askId, dbTarget: db.describeTarget() });
           const llm = createLLMAdapter(cfg.llm);
           const agent = new Agent(llm, db, cfg.llm, cfg.maxRounds, {
             allowSystem: cfg.allowSystem,
             allowWrites: cfg.allowWrites,
+            hooks,
           });
           return agent.runTurn(question, { timeoutMs: cfg.timeoutMs });
         },

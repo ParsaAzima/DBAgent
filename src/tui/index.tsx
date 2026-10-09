@@ -6,7 +6,7 @@
 import React from 'react';
 import { render } from 'ink';
 import type { Agent } from '../core/agent.js';
-import type { DatabaseDriver, LLMProviderId } from '../core/types.js';
+import type { AgentHooks, DatabaseDriver, LLMProviderId } from '../core/types.js';
 import { Tui } from './app.js';
 
 export interface RenderTuiOptions {
@@ -15,6 +15,10 @@ export interface RenderTuiOptions {
   provider: LLMProviderId;
   model: string;
   allowWrites: boolean;
+  /** Skip the y/n write gate (operator passed --yes). */
+  assumeYes: boolean;
+  /** Shared-by-reference hooks; the TUI installs its confirm gate here. */
+  hooks: AgentHooks;
   maxRows: number;
   sessionLabel: string;
   /** Restored TUI transcript from a previous session. */
@@ -30,6 +34,8 @@ export function renderTui(opts: RenderTuiOptions): { waitUntilExit: Promise<void
       provider={opts.provider}
       model={opts.model}
       allowWrites={opts.allowWrites}
+      assumeYes={opts.assumeYes}
+      hooks={opts.hooks}
       maxRows={opts.maxRows}
       sessionLabel={opts.sessionLabel}
       initialItems={opts.initialItems as never}
