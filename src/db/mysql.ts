@@ -11,6 +11,7 @@ import type {
   ColumnInfo,
 } from '../core/types.js';
 import { classifyStatement, isWriteStatement, singleStatement, enforceLimit } from './guard.js';
+import { cloneTables, findCachedTable } from './schema-cache.js';
 
 export class MysqlDriver implements DatabaseDriver {
   readonly dialect = 'mysql' as const;
@@ -18,6 +19,8 @@ export class MysqlDriver implements DatabaseDriver {
   private readonly safety: Required<SafetyConfig>;
   private readonly database: string;
   private conn: any;
+  /** Session snapshot of listTables(); cleared on writes and refreshSchema(). */
+  private tablesCache: TableInfo[] | null = null;
 
   constructor(conn: DatabaseConnection, safety: SafetyConfig = {}) {
     this.connSpec = conn;
@@ -56,6 +59,7 @@ export class MysqlDriver implements DatabaseDriver {
   }
 
   async listTables(): Promise<TableInfo[]> {
+    if (this.tablesCache) return cloneTables(this.tablesCache);
     const conn = await this.ensureConnection();
     const [rows] = await conn.query(
       `SELECT table_name AS name, table_type AS kind, table_rows AS row_estimate
@@ -72,10 +76,13 @@ export class MysqlDriver implements DatabaseDriver {
         columns: await this.columnsOf(String(r.name ?? r.TABLE_NAME)),
       });
     }
+    this.tablesCache = cloneTables(out);
     return out;
   }
 
   async describeTable(name: string): Promise<TableInfo | null> {
+    const cached = findCachedTable(this.tablesCache, name);
+    if (cached) return cached;
     const conn = await this.ensureConnection();
     const [rows] = await conn.query(
       `SELECT table_name AS name, table_type AS kind
@@ -109,6 +116,8 @@ export class MysqlDriver implements DatabaseDriver {
     const start = Date.now();
     if (kind === 'read') return this.runRead(stmt);
     const [res]: any = await conn.query(stmt);
+    // Row counts and catalog entries may be stale after a write.
+    this.tablesCache = null;
     const affected = res?.affectedRows ?? res?.changedRows ?? 0;
     return {
       columns: ['rowsAffected'],
@@ -120,6 +129,11 @@ export class MysqlDriver implements DatabaseDriver {
 
   async close(): Promise<void> {
     if (this.conn) await this.conn.end();
+  }
+
+  /** Drop the cached schema snapshot; the next listTables() re-reads information_schema. */
+  async refreshSchema(): Promise<void> {
+    this.tablesCache = null;
   }
 
   private async columnsOf(table: string): Promise<ColumnInfo[]> {

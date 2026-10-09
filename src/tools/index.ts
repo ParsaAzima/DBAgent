@@ -32,7 +32,13 @@ export function buildTools(db: DatabaseDriver, opts: BuildToolsOptions = {}): Bu
     {
       name: 'list_tables',
       description:
-        'List all tables and views in the connected database with row-count estimates and columns.',
+        'List all tables and views in the connected database with row-count estimates and columns. Results are cached per session; call refresh_schema after external DDL or migrations.',
+      parameters: { type: 'object', description: 'No arguments.', properties: {}, required: [] },
+    },
+    {
+      name: 'refresh_schema',
+      description:
+        'Drop the cached schema snapshot and re-read the live catalog (tables, views, columns). Use after migrations, imports, or any DDL applied outside this session, or when a table looks missing/stale.',
       parameters: { type: 'object', description: 'No arguments.', properties: {}, required: [] },
     },
     {
@@ -134,6 +140,13 @@ export function buildTools(db: DatabaseDriver, opts: BuildToolsOptions = {}): Bu
 
   const registry = new Map<string, ToolHandler>([
     ['list_tables', async () => db.listTables()],
+    [
+      'refresh_schema',
+      async () => {
+        await db.refreshSchema();
+        return db.listTables();
+      },
+    ],
     [
       'describe_table',
       async (args) => {

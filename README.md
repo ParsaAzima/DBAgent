@@ -65,6 +65,7 @@ Ask things like _"Which product sold the most last month?"_ or _"Export the cust
 | `ctrl+l`                     | Clear screen (session keeps the transcript)                                                                  |
 | `/model <name>`              | Switch models mid-session, e.g. `/model anthropic/claude-sonnet-4`                                           |
 | `/schema`                    | Dump tables, columns, types, primary keys                                                                    |
+| `/refresh`                   | Drop the cached schema snapshot and re-read the live catalog                                                 |
 | `/save` · `/reset` · `/exit` | Persist session · clear conversation · quit                                                                  |
 
 The status bar is always visible: current `provider/model`, safety mode, session id, cumulative tokens in/out, and **estimated cost** (built-in price table for popular models; shows `$0` when pricing is unknown).
@@ -79,7 +80,8 @@ Database URLs: `sqlite://./app.db` · `postgres://user:pass@host:5432/db?ssl=tru
 
 | Tool                 | Purpose                                                                                                                                                                                             |
 | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `list_tables`        | Tables + views with row-count estimates                                                                                                                                                             |
+| `list_tables`        | Tables + views with row-count estimates (cached per session)                                                                                                                                        |
+| `refresh_schema`     | Clear the schema cache and re-read the live catalog (use after external DDL/migrations)                                                                                                             |
 | `describe_table`     | Columns, types, nullability, primary keys, defaults                                                                                                                                                 |
 | `sample_rows`        | Peek at the first N rows of a table                                                                                                                                                                 |
 | `query`              | Run read-only SQL (LIMIT auto-enforced)                                                                                                                                                             |

@@ -187,12 +187,22 @@ export interface DatabaseDriver {
   readonly dialect: DatabaseDialect;
   /** Human-readable, redacted connection target (no credentials). */
   describeTarget(): string;
+  /**
+   * List tables/views with columns. Results are cached per session for
+   * performance — call refreshSchema() after out-of-band DDL.
+   */
   listTables(): Promise<TableInfo[]>;
   describeTable(name: string): Promise<TableInfo | null>;
   /** Peek at table contents; always a read-only SELECT with LIMIT. */
   sampleRows(name: string, limit: number): Promise<QueryResult>;
   /** Execute a guarded SQL statement. */
   execute(sql: string): Promise<QueryResult>;
+  /**
+   * Drop the cached list_tables()/describe_table() snapshot so the next
+   * call re-reads the live catalog. Writes through execute() invalidate
+   * automatically; use this after external migrations or DDL.
+   */
+  refreshSchema(): Promise<void>;
   close(): Promise<void>;
 }
 

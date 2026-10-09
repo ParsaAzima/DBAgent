@@ -12,11 +12,14 @@ import type {
   ColumnInfo,
 } from '../core/types.js';
 import { classifyStatement, isWriteStatement, singleStatement, enforceLimit } from './guard.js';
+import { cloneTables, findCachedTable } from './schema-cache.js';
 
 export class PostgresDriver implements DatabaseDriver {
   readonly dialect = 'postgres' as const;
   private readonly pool: any;
   private readonly safety: Required<SafetyConfig>;
+  /** Session snapshot of listTables(); cleared on writes and refreshSchema(). */
+  private tablesCache: TableInfo[] | null = null;
 
   constructor(conn: DatabaseConnection, safety: SafetyConfig = {}) {
     this.safety = {
@@ -48,6 +51,7 @@ export class PostgresDriver implements DatabaseDriver {
   }
 
   async listTables(): Promise<TableInfo[]> {
+    if (this.tablesCache) return cloneTables(this.tablesCache);
     const { rows } = await this.pool.query(
       `SELECT c.relname AS name,
               c.relkind AS kind,
@@ -70,10 +74,13 @@ export class PostgresDriver implements DatabaseDriver {
         columns: await this.columnsOf(r.schema, r.name),
       });
     }
+    this.tablesCache = cloneTables(out);
     return out;
   }
 
   async describeTable(name: string): Promise<TableInfo | null> {
+    const cached = findCachedTable(this.tablesCache, name);
+    if (cached) return cached;
     const [schema, table] = name.includes('.') ? name.split('.', 2) : [null, name];
     const { rows } = await this.pool.query(
       `SELECT c.relname AS name, c.relkind AS kind, n.nspname AS schema
@@ -115,6 +122,8 @@ export class PostgresDriver implements DatabaseDriver {
       return this.runRead(stmt);
     }
     const res = await this.pool.query(stmt);
+    // Row counts and catalog entries may be stale after a write.
+    this.tablesCache = null;
     return {
       columns: res.fields?.map((f: any) => f.name) ?? ['status'],
       rows: res.rows?.length
@@ -127,6 +136,11 @@ export class PostgresDriver implements DatabaseDriver {
 
   async close(): Promise<void> {
     await this.pool.end();
+  }
+
+  /** Drop the cached schema snapshot; the next listTables() re-reads the catalog. */
+  async refreshSchema(): Promise<void> {
+    this.tablesCache = null;
   }
 
   private async columnsOf(schema: string | null, table: string): Promise<ColumnInfo[]> {

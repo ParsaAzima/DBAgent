@@ -18,6 +18,7 @@ import {
   singleStatement,
   enforceLimit,
 } from './guard.js';
+import { cloneTables, findCachedTable } from './schema-cache.js';
 
 /**
  * T-SQL statements that can change server/database state even though they do
@@ -33,6 +34,8 @@ export class SqlServerDriver implements DatabaseDriver {
   private readonly safety: Required<SafetyConfig>;
   private readonly database: string;
   private pool: any;
+  /** Session snapshot of listTables(); cleared on writes and refreshSchema(). */
+  private tablesCache: TableInfo[] | null = null;
 
   constructor(conn: DatabaseConnection, safety: SafetyConfig = {}) {
     this.connSpec = conn;
@@ -86,6 +89,7 @@ export class SqlServerDriver implements DatabaseDriver {
   }
 
   async listTables(): Promise<TableInfo[]> {
+    if (this.tablesCache) return cloneTables(this.tablesCache);
     const pool = await this.ensurePool();
     const res = await pool.request().query(
       `SELECT o.name AS [name], o.type AS [type],
@@ -107,10 +111,13 @@ export class SqlServerDriver implements DatabaseDriver {
         columns: await this.columnsOf(String(r.name), r.schema != null ? String(r.schema) : null),
       });
     }
+    this.tablesCache = cloneTables(out);
     return out;
   }
 
   async describeTable(name: string): Promise<TableInfo | null> {
+    const cached = findCachedTable(this.tablesCache, name);
+    if (cached) return cached;
     const pool = await this.ensurePool();
     const [schema, table] = splitQualified(name);
     const req = pool.request().input('table', table);
@@ -153,6 +160,8 @@ export class SqlServerDriver implements DatabaseDriver {
     if (kind === 'read') return this.runRead(stmt);
 
     const res = await pool.request().query(stmt);
+    // Row counts and catalog entries may be stale after a write.
+    this.tablesCache = null;
     // EXEC/MERGE etc. may return a result set — show it instead of a bare count.
     if (res.recordset && (res.recordset.columns || res.recordset.length > 0)) {
       return this.recordsetToResult(res, start);
@@ -168,6 +177,11 @@ export class SqlServerDriver implements DatabaseDriver {
 
   async close(): Promise<void> {
     if (this.pool) await this.pool.close();
+  }
+
+  /** Drop the cached schema snapshot; the next listTables() re-reads sys.objects. */
+  async refreshSchema(): Promise<void> {
+    this.tablesCache = null;
   }
 
   private async columnsOf(table: string, schema: string | null): Promise<ColumnInfo[]> {

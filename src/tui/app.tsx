@@ -44,7 +44,7 @@ export interface TuiProps {
 
 const EMPTY_USAGE: UsageInfo = { inputTokens: 0, outputTokens: 0, costUsd: 0 };
 const HINTS =
-  'esc stop · ctrl+t tool details · ctrl+o table view · /model · /schema · /help · /exit';
+  'esc stop · ctrl+t tool details · ctrl+o table view · /model · /schema · /refresh · /help · /exit';
 
 interface Live {
   text: string;
@@ -227,8 +227,18 @@ export function Tui(props: TuiProps): React.ReactElement {
       if (input === '/help') {
         push({
           role: 'info',
-          text: '/schema tables+columns · /model [name] switch model · /save · /reset · ctrl+t tool detail · ctrl+o last result · /exit',
+          text: '/schema tables+columns · /refresh re-read schema after DDL · /model [name] switch model · /save · /reset · ctrl+t tool detail · ctrl+o last result · /exit',
         });
+        return;
+      }
+      if (input === '/refresh') {
+        try {
+          await props.db.refreshSchema();
+          const tables = await props.db.listTables();
+          push({ role: 'info', text: `✓ Schema refreshed (${tables.length} tables/views)` });
+        } catch (err) {
+          push({ role: 'error', text: (err as Error).message });
+        }
         return;
       }
       if (input === '/schema') {

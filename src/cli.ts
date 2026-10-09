@@ -177,7 +177,7 @@ program
       `  Mode    : ${cfg.allowWrites ? 'READ+WRITE' : 'READ-ONLY'} (max ${cfg.maxRows ?? 100} rows)`,
     );
     console.log(`  Session : ${sessionId}`);
-    console.log(`Commands: /exit  /reset  /save  /schema  /help\n`);
+    console.log(`Commands: /exit  /reset  /save  /schema  /refresh  /help\n`);
 
     const rl = createInterface({ input: process.stdin, output: process.stdout });
     const prompt = () => rl.question('you > ', (answer) => void handleInput(answer.trim()));
@@ -219,9 +219,20 @@ program
         }
         return prompt();
       }
+      if (input === '/refresh') {
+        try {
+          await db.refreshSchema();
+          const tables = await db.listTables();
+          console.log(`✓ Schema refreshed (${tables.length} tables/views).\n`);
+        } catch (err) {
+          console.error(`✗ ${(err as Error).message}`);
+        }
+        return prompt();
+      }
       if (input === '/help') {
         console.log('/exit  quit (auto-saves)   /reset  clear conversation');
         console.log('/save  persist session     /schema dump tables & columns');
+        console.log('/refresh re-read schema after external DDL');
         return prompt();
       }
 

@@ -11,12 +11,15 @@ import type {
   TableInfo,
 } from '../core/types.js';
 import { isWriteStatement, singleStatement, enforceLimit } from './guard.js';
+import { cloneTables, findCachedTable } from './schema-cache.js';
 
 export class SqliteDriver implements DatabaseDriver {
   readonly dialect = 'sqlite' as const;
   private readonly db: any;
   private readonly file: string;
   private readonly safety: Required<SafetyConfig>;
+  /** Session snapshot of listTables(); cleared on writes and refreshSchema(). */
+  private tablesCache: TableInfo[] | null = null;
 
   constructor(conn: DatabaseConnection, safety: SafetyConfig = {}) {
     this.safety = {
@@ -48,6 +51,7 @@ export class SqliteDriver implements DatabaseDriver {
   }
 
   async listTables(): Promise<TableInfo[]> {
+    if (this.tablesCache) return cloneTables(this.tablesCache);
     const tables = this.db
       .prepare(
         `SELECT name, type FROM sqlite_master
@@ -74,10 +78,13 @@ export class SqliteDriver implements DatabaseDriver {
         columns: this.columnsOf(t.name),
       });
     }
+    this.tablesCache = cloneTables(out);
     return out;
   }
 
   async describeTable(name: string): Promise<TableInfo | null> {
+    const cached = findCachedTable(this.tablesCache, name);
+    if (cached) return cached;
     const exists = this.db
       .prepare(`SELECT name, type FROM sqlite_master WHERE name = ? AND type IN ('table','view')`)
       .get(name) as { name: string; type: string } | undefined;
@@ -87,6 +94,11 @@ export class SqliteDriver implements DatabaseDriver {
       kind: exists.type === 'view' ? 'view' : 'table',
       columns: this.columnsOf(name),
     };
+  }
+
+  /** Drop the cached schema snapshot; the next listTables() re-reads sqlite_master. */
+  async refreshSchema(): Promise<void> {
+    this.tablesCache = null;
   }
 
   async sampleRows(name: string, limit: number): Promise<QueryResult> {
@@ -104,6 +116,8 @@ export class SqliteDriver implements DatabaseDriver {
     if (isWriteStatement(stmt)) {
       const start = Date.now();
       const info = this.db.prepare(stmt).run();
+      // Row counts and catalog entries may be stale after a write.
+      this.tablesCache = null;
       return {
         columns: ['rowsAffected'],
         rows: [[Number(info.changes ?? 0)]],
