@@ -4,7 +4,6 @@
 
 import React, { useState } from 'react';
 import { Box, Text, useInput } from 'ink';
-import TextInput from 'ink-text-input';
 import {
   completeSlashCommand,
   findSlashCommand,
@@ -36,19 +35,19 @@ export function ChatInput({
   const [historyIndex, setHistoryIndex] = useState<number | null>(null);
   const [historyDraft, setHistoryDraft] = useState('');
   const [suggestionIndex, setSuggestionIndex] = useState(0);
-  const [inputRevision, setInputRevision] = useState(0);
+  const [cursorOffset, setCursorOffset] = useState(0);
   const suggestions = getSlashCommandSuggestions(value, extraCommands);
   const activeSuggestion = suggestions[suggestionIndex % Math.max(suggestions.length, 1)];
 
   const changeValue = (next: string): void => {
     setValue(next);
+    setCursorOffset(next.length);
     setHistoryIndex(null);
     setSuggestionIndex(0);
   };
 
   const replaceValue = (next: string): void => {
     changeValue(next);
-    setInputRevision((revision) => revision + 1);
   };
 
   const submit = async (): Promise<void> => {
@@ -63,17 +62,16 @@ export function ChatInput({
     if (history[history.length - 1] !== v) history.push(v);
     setHistoryIndex(null);
     setValue('');
+    setCursorOffset(0);
     await onSubmit(v);
   };
 
   useInput(
     (input, key) => {
-      // ink-text-input filters only ctrl+c, so every other ctrl+letter would
-      // insert its bare letter into the prompt (ctrl+t → "t"). Children's
-      // input handlers run before this parent-level one, so by the time we
-      // get here the stray character is already appended — undo it.
-      if (key.ctrl && input.length === 1 && input !== 'c') {
-        setValue((v) => (v.length > 0 && v.endsWith(input) ? v.slice(0, -1) : v));
+      // SGR mouse wheel events must never be inserted into the prompt.
+      const mouseInput = input.charCodeAt(0) === 27 ? input.slice(1) : input;
+      if (/^\[<\d+;\d+;\d+M$/.test(mouseInput)) return;
+      if (key.ctrl || key.meta) {
         return;
       }
       if (key.tab && activeSuggestion) {
@@ -93,31 +91,81 @@ export function ChatInput({
             setHistoryDraft(value);
             setHistoryIndex(history.length - 1);
             setValue(history[history.length - 1]);
-            setInputRevision((revision) => revision + 1);
+            setCursorOffset(history[history.length - 1].length);
           } else if (historyIndex > 0) {
             const nextIndex = historyIndex - 1;
             setHistoryIndex(nextIndex);
             setValue(history[nextIndex]);
-            setInputRevision((revision) => revision + 1);
+            setCursorOffset(history[nextIndex].length);
           }
         } else if (historyIndex !== null) {
           if (historyIndex < history.length - 1) {
             const nextIndex = historyIndex + 1;
             setHistoryIndex(nextIndex);
             setValue(history[nextIndex]);
-            setInputRevision((revision) => revision + 1);
+            setCursorOffset(history[nextIndex].length);
           } else {
             setHistoryIndex(null);
             setValue(historyDraft);
-            setInputRevision((revision) => revision + 1);
+            setCursorOffset(historyDraft.length);
           }
         }
+        return;
+      }
+
+      if (key.leftArrow) {
+        setCursorOffset((offset) => Math.max(0, offset - 1));
+        return;
+      }
+      if (key.rightArrow) {
+        setCursorOffset((offset) => Math.min(value.length, offset + 1));
+        return;
+      }
+      if (key.home) {
+        setCursorOffset(0);
+        return;
+      }
+      if (key.end) {
+        setCursorOffset(value.length);
+        return;
+      }
+      if (key.backspace) {
+        if (cursorOffset > 0) {
+          setValue(value.slice(0, cursorOffset - 1) + value.slice(cursorOffset));
+          setCursorOffset(cursorOffset - 1);
+        }
+        return;
+      }
+      if (key.delete) {
+        if (cursorOffset < value.length) {
+          setValue(value.slice(0, cursorOffset) + value.slice(cursorOffset + 1));
+        }
+        return;
+      }
+      if (key.return) {
+        void submit();
+        return;
+      }
+      if (
+        input &&
+        !Array.from(input).some((character) => {
+          const code = character.charCodeAt(0);
+          return code < 32 || code === 127;
+        })
+      ) {
+        setValue(value.slice(0, cursorOffset) + input + value.slice(cursorOffset));
+        setCursorOffset(cursorOffset + input.length);
+        setHistoryIndex(null);
+        setSuggestionIndex(0);
       }
     },
     { isActive: !disabled },
   );
 
   if (disabled) return <></>;
+  const cursorBefore = value.slice(0, cursorOffset);
+  const cursorChar = value.slice(cursorOffset, cursorOffset + 1) || ' ';
+  const cursorAfter = value.slice(cursorOffset + 1);
 
   return (
     <Box flexDirection="column">
@@ -125,13 +173,18 @@ export function ChatInput({
         <Text color={theme.user} bold>
           {'you › '}
         </Text>
-        <TextInput
-          key={inputRevision}
-          value={value}
-          onChange={changeValue}
-          onSubmit={submit}
-          placeholder={placeholder}
-        />
+        {value.length === 0 ? (
+          <>
+            <Text inverse> </Text>
+            <Text color={theme.muted}>{placeholder}</Text>
+          </>
+        ) : (
+          <>
+            {cursorBefore}
+            <Text inverse>{cursorChar}</Text>
+            {cursorAfter}
+          </>
+        )}
       </Text>
       {suggestions.length > 0 ? (
         <Box marginLeft={6} flexDirection="column">

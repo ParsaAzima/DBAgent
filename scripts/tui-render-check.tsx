@@ -96,6 +96,7 @@ const testSkills: Skill[] = [
 
 const frames: string[] = [];
 const stdout = new PassThrough();
+Object.assign(stdout, { columns: 100, rows: 30, isTTY: true });
 stdout.on('data', (c) => frames.push(String(c)));
 
 // Ink needs a TTY-capable stdin for useInput; stub one for CI.
@@ -121,6 +122,13 @@ const { unmount, waitUntilExit } = render(
     maxRows={100}
     sessionLabel="tui-check"
     skills={testSkills}
+    initialItems={[
+      ...Array.from({ length: 30 }, (_, index) => ({
+        role: 'info' as const,
+        text: `OLD-MSG-${index}`,
+      })),
+      { role: 'info' as const, text: 'LATEST-TRANSCRIPT-ENTRY' },
+    ]}
     initialTheme="catppuccin-latte"
     onThemeSwitch={(name) => {
       selectedTheme = name;
@@ -159,13 +167,56 @@ const deltaSince = (mark: number) => snapshot().slice(mark);
 
 await sleep(300);
 let joined = snapshot();
-check('banner rendered', joined.includes('DBAgent — AI for your databases'), joined.slice(0, 300));
-check('target line rendered', joined.includes('sqlite file: :memory: (mock)'));
+check(
+  'mouse wheel reporting enabled for full-screen TUI',
+  joined.includes('\u001b[?1000h\u001b[?1006h'),
+);
+check('persistent app header rendered', joined.includes('DBAgent · database assistant'));
+check(
+  'header includes database target and session',
+  joined.includes('sqlite file: :memory: (mock)'),
+);
+check('terminal input remains visible in the full-screen layout', joined.includes('you ›'));
+check('transcript viewport follows newest history', joined.includes('LATEST-TRANSCRIPT-ENTRY'));
+check('older history is clipped to the viewport', !joined.includes('OLD-MSG-0'));
+
+let mark = joined.length;
+await feed('\u001b[5~');
+let delta = deltaSince(mark);
+check('PageUp scrolls back through transcript history', delta.includes('OLD-MSG-10'));
+check(
+  'history view indicates newer messages are available',
+  delta.includes('newer messages below'),
+);
+mark = snapshot().length;
+await feed('\u001b[6~');
+delta = deltaSince(mark);
+check(
+  'PageDown returns to the newest transcript activity',
+  delta.includes('LATEST-TRANSCRIPT-ENTRY'),
+);
+mark = snapshot().length;
+await feed('\u001b[<64;10;10M');
+delta = deltaSince(mark);
+check(
+  'mouse wheel scrolls transcript history',
+  delta.includes('OLD-MSG-10'),
+  JSON.stringify(delta),
+);
+check(
+  'mouse wheel events are not inserted into the prompt',
+  !delta.includes('you › [<64'),
+  JSON.stringify(delta),
+);
+mark = snapshot().length;
+await feed('\u001b[<65;10;10M');
+delta = deltaSince(mark);
+check('mouse wheel down returns toward newest history', delta.includes('LATEST-TRANSCRIPT-ENTRY'));
 
 // ── ctrl+o before any query: must explain itself, not type a stray "o" ──
-let mark = joined.length;
+mark = snapshot().length;
 await feed([0x0f]); // ctrl+o
-let delta = deltaSince(mark);
+delta = deltaSince(mark);
 check(
   'ctrl+o without a result explains itself',
   delta.includes('No table result to view yet'),
@@ -185,8 +236,23 @@ check('turn answered', joined.includes('MOCK-ANSWER-OK'), joined.slice(-400));
 check('tool block rendered', joined.includes('query SELECT 1'), joined.slice(-400));
 check('tool details hidden by default', !joined.includes('ctrl+o to open interactive viewer'));
 
+mark = snapshot().length;
+await feed('\u001b[<64;10;10M');
+delta = deltaSince(mark);
+check('mouse scroll never recalls a previous prompt', !delta.includes('you › top customers'));
+await feed('\u001b[<65;10;10M');
+mark = snapshot().length;
+await feed('\u001b[A');
+delta = deltaSince(mark);
+check('ArrowUp recalls the previous prompt', delta.includes('you › top customers'));
+check('ArrowUp does not scroll transcript history', !delta.includes('OLD-MSG-10'));
+mark = snapshot().length;
+await feed('\u001b[B');
+delta = deltaSince(mark);
+check('ArrowDown returns to the current prompt draft', delta.includes('you ›'));
+
 // ── ctrl+t expands tool details retroactively ──
-mark = joined.length;
+mark = snapshot().length;
 await feed([0x14]); // ctrl+t
 delta = deltaSince(mark);
 check(
@@ -286,6 +352,10 @@ check('model command selects a listed model', selectedModel === 'model-two', sel
 check('model command confirms selected model', delta.includes('model → model-two'));
 
 unmount();
+check(
+  'mouse wheel reporting disabled on TUI exit',
+  snapshot().includes('\u001b[?1006l\u001b[?1000l'),
+);
 await waitUntilExit();
 
 if (failures > 0) process.exit(1);

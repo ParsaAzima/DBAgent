@@ -15,8 +15,9 @@
  */
 
 import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 
 export interface SkillMeta {
   /** Command name: frontmatter `name` when set, else the directory name. */
@@ -25,8 +26,8 @@ export interface SkillMeta {
   description: string;
   /** Absolute path of the SKILL.md file. */
   path: string;
-  /** project = .dbagent/skills under the working dir; user = ~/.dbagent/skills. */
-  source: 'project' | 'user';
+  /** Built-in package skills, project skills, or user skills. */
+  source: 'builtin' | 'project' | 'user';
 }
 
 export interface Skill extends SkillMeta {
@@ -39,25 +40,30 @@ export interface LoadSkillsOptions {
   projectDir?: string;
   /** Home directory whose .dbagent/skills is searched (default: os.homedir()). */
   userDir?: string;
+  /** Package skill directory (defaults to the bundled skills/ directory). */
+  builtinDir?: string;
 }
 
 /** Skill names double as slash commands — keep them URL/shell friendly. */
 const NAME_RE = /^[a-z0-9][a-z0-9._-]*$/i;
+const BUNDLED_SKILLS = join(dirname(fileURLToPath(import.meta.url)), '../../skills');
 
 /**
- * Discover installed skills. Project skills shadow user skills of the same
- * name; results are sorted for a stable system prompt.
+ * Discover bundled, user, and project skills. User skills override bundled
+ * defaults; project skills override both. Results are stably sorted.
  */
 export function loadSkills(opts: LoadSkillsOptions = {}): Skill[] {
   const projectRoot = join(opts.projectDir ?? process.cwd(), '.dbagent', 'skills');
   const userRoot = join(opts.userDir ?? homedir(), '.dbagent', 'skills');
   const byName = new Map<string, Skill>();
+  for (const skill of readSkillDir(opts.builtinDir ?? BUNDLED_SKILLS, 'builtin'))
+    byName.set(skill.name, skill);
   for (const skill of readSkillDir(userRoot, 'user')) byName.set(skill.name, skill);
   for (const skill of readSkillDir(projectRoot, 'project')) byName.set(skill.name, skill);
   return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
-function readSkillDir(root: string, source: 'project' | 'user'): Skill[] {
+function readSkillDir(root: string, source: SkillMeta['source']): Skill[] {
   let entries: string[];
   try {
     entries = readdirSync(root);
@@ -93,7 +99,7 @@ export function parseSkill(
   raw: string,
   dirName: string,
   path: string,
-  source: 'project' | 'user',
+  source: SkillMeta['source'],
 ): Skill | null {
   const text = raw.replace(/\r\n/g, '\n');
   const match = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/.exec(text);

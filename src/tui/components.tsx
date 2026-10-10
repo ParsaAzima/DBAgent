@@ -190,17 +190,56 @@ export function Transcript({
   items,
   expanded = false,
   theme,
+  maxLines = 1000,
+  columns = 80,
+  scrollOffset = 0,
 }: {
   items: TranscriptItem[];
   expanded?: boolean;
   theme: TuiTheme;
+  maxLines?: number;
+  columns?: number;
+  scrollOffset?: number;
 }): React.ReactElement {
+  const end = Math.max(0, items.length - scrollOffset);
+  let start = end;
+  let usedLines = 0;
+  for (let index = end - 1; index >= 0; index--) {
+    const count = estimateTranscriptLines(items[index], columns, expanded);
+    if (usedLines + count > maxLines && start < end) break;
+    usedLines += count;
+    start = index;
+    if (usedLines >= maxLines) break;
+  }
+  const visible = items.slice(start, end);
+  const hiddenBefore = start > 0;
+  const hiddenAfter = end < items.length;
   return (
-    <Box flexDirection="column">
-      {items.map((item, i) => (
+    <Box flexGrow={1} flexDirection="column" overflow="hidden">
+      {hiddenBefore || hiddenAfter ? (
+        <Text color={theme.muted}>
+          {hiddenAfter ? '↑ newer messages below' : '… earlier messages hidden'} · PgUp/PgDn history
+        </Text>
+      ) : null}
+      {visible.map((item, i) => (
         <MemoTranscriptEntry key={i} item={item} expanded={expanded} theme={theme} />
       ))}
     </Box>
+  );
+}
+
+function estimateTranscriptLines(item: TranscriptItem, columns: number, expanded: boolean): number {
+  const width = Math.max(20, columns - 8);
+  const textLines = (text: string): number =>
+    text
+      .split('\n')
+      .reduce((total, line) => total + Math.max(1, Math.ceil(line.length / width)), 0);
+  const toolLines = (item.tools ?? []).reduce(
+    (total, tool) => total + 1 + (expanded && tool.argsSummary ? textLines(tool.argsSummary) : 0),
+    0,
+  );
+  return (
+    textLines(item.text) + toolLines + (item.role === 'user' || item.role === 'assistant' ? 1 : 0)
   );
 }
 
@@ -269,13 +308,7 @@ export function StatusBar({
   theme: TuiTheme;
 }): React.ReactElement {
   return (
-    <Box
-      marginTop={0}
-      borderStyle="single"
-      borderColor={theme.muted}
-      paddingX={1}
-      flexDirection="column"
-    >
+    <Box width="100%" borderTop borderColor={theme.muted} paddingX={1} flexDirection="column">
       <Box>
         <Text color={theme.accentSecondary}>{provider}</Text>
         <Text color={theme.muted}>/</Text>

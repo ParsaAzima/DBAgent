@@ -32,29 +32,44 @@ export interface RenderTuiOptions {
   onModelSwitch?: (model: string) => void;
   onListModels?: () => Promise<string[]>;
   onSave?: (transcript?: unknown[]) => void;
+  /** Use the terminal's alternate screen buffer instead of the scrollback. */
+  fullScreen?: boolean;
 }
 
 export function renderTui(opts: RenderTuiOptions): { waitUntilExit: Promise<void> } {
-  const { waitUntilExit } = render(
-    <Tui
-      agent={opts.agent}
-      db={opts.db}
-      provider={opts.provider}
-      model={opts.model}
-      allowWrites={opts.allowWrites}
-      assumeYes={opts.assumeYes}
-      hooks={opts.hooks}
-      maxRows={opts.maxRows}
-      sessionLabel={opts.sessionLabel}
-      skills={opts.skills}
-      initialTheme={opts.initialTheme}
-      onThemeSwitch={opts.onThemeSwitch}
-      initialItems={opts.initialItems as never}
-      onModelSwitch={opts.onModelSwitch}
-      onListModels={opts.onListModels}
-      onSave={opts.onSave ?? undefined}
-    />,
-    { exitOnCtrlC: true },
-  );
-  return { waitUntilExit: waitUntilExit() as unknown as Promise<void> };
+  const fullScreen =
+    opts.fullScreen ??
+    (Boolean(process.stdin.isTTY && process.stdout.isTTY) && process.env.TERM !== 'dumb');
+  if (fullScreen) process.stdout.write('\u001B[?1049h\u001B[2J\u001B[H');
+
+  try {
+    const app = render(
+      <Tui
+        agent={opts.agent}
+        db={opts.db}
+        provider={opts.provider}
+        model={opts.model}
+        allowWrites={opts.allowWrites}
+        assumeYes={opts.assumeYes}
+        hooks={opts.hooks}
+        maxRows={opts.maxRows}
+        sessionLabel={opts.sessionLabel}
+        skills={opts.skills}
+        initialTheme={opts.initialTheme}
+        onThemeSwitch={opts.onThemeSwitch}
+        initialItems={opts.initialItems as never}
+        onModelSwitch={opts.onModelSwitch}
+        onListModels={opts.onListModels}
+        onSave={opts.onSave ?? undefined}
+      />,
+      { exitOnCtrlC: true },
+    );
+    const waitUntilExit = app.waitUntilExit().finally(() => {
+      if (fullScreen) process.stdout.write('\u001B[?1049l\u001B[?25h');
+    });
+    return { waitUntilExit: waitUntilExit as unknown as Promise<void> };
+  } catch (error) {
+    if (fullScreen) process.stdout.write('\u001B[?1049l\u001B[?25h');
+    throw error;
+  }
 }

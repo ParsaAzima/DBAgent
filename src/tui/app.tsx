@@ -10,7 +10,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Box, Text, useApp, useInput } from 'ink';
+import { Box, Text, useApp, useInput, useStdin, useStdout } from 'ink';
 import type { Agent, AgentTurnResult } from '../core/agent.js';
 import type { AgentHooks, AgentTurnEvent, TokenUsage, WriteConfirmRequest } from '../core/types.js';
 import type { DatabaseDriver } from '../core/types.js';
@@ -57,9 +57,9 @@ export interface TuiProps {
 
 const EMPTY_USAGE: UsageInfo = { inputTokens: 0, outputTokens: 0, costUsd: 0 };
 const HINTS =
-  'esc stop · ctrl+t tool details · ctrl+o table view · / for commands · /help for help';
+  'pgup/pgdn history · esc stop · ctrl+t tool details · ctrl+o table view · / for commands';
 const HINTS_EXPANDED =
-  'esc stop · ctrl+t hide details · ctrl+o table view · / for commands · /help for help';
+  'pgup/pgdn history · esc stop · ctrl+t hide details · ctrl+o table view · / for commands';
 
 interface Live {
   text: string;
@@ -73,6 +73,12 @@ const IDLE: Live = { text: '', tools: [], round: 0, startedAt: 0, usage: EMPTY_U
 
 export function Tui(props: TuiProps): React.ReactElement {
   const { exit } = useApp();
+  const { stdout } = useStdout();
+  const { stdin } = useStdin();
+  const [terminalSize, setTerminalSize] = useState({
+    columns: stdout.columns || 80,
+    rows: stdout.rows || 24,
+  });
   const [items, setItems] = useState<TranscriptItem[]>(props.initialItems ?? []);
   const [live, setLive] = useState<Live>(IDLE);
   const [model, setModel] = useState(props.model);
@@ -82,6 +88,7 @@ export function Tui(props: TuiProps): React.ReactElement {
   const [totals, setTotals] = useState<UsageInfo>(EMPTY_USAGE);
   const [showTable, setShowTable] = useState(false);
   const [toolDetail, setToolDetail] = useState(false);
+  const [scrollOffset, setScrollOffset] = useState(0);
   const [tick, setTick] = useState(0);
   /** Pending write approval: resolves the confirm gate on y/n. */
   const [pending, setPending] = useState<{
@@ -110,9 +117,31 @@ export function Tui(props: TuiProps): React.ReactElement {
     return () => clearInterval(t);
   }, [live.busy]);
 
+  useEffect(() => {
+    const updateSize = (): void => {
+      setTerminalSize({
+        columns: stdout.columns || 80,
+        rows: stdout.rows || 24,
+      });
+    };
+    stdout.on('resize', updateSize);
+    return () => {
+      stdout.off('resize', updateSize);
+    };
+  }, [stdout]);
+
+  useEffect(() => {
+    if (!stdin.isTTY || !stdout.isTTY) return;
+    stdout.write('\u001B[?1000h\u001B[?1006h');
+    return () => {
+      stdout.write('\u001B[?1006l\u001B[?1000l');
+    };
+  }, [stdin, stdout]);
+
   const push = useCallback((item: TranscriptItem) => {
     transcriptRef.current = [...transcriptRef.current, item];
     setItems((prev) => [...prev, item]);
+    setScrollOffset(0);
   }, []);
 
   /* ── write-approval gate: y/n answers resolve the tool's confirm hook ── */
@@ -145,18 +174,6 @@ export function Tui(props: TuiProps): React.ReactElement {
     },
     [push],
   );
-
-  /* ── banner ── */
-  useEffect(() => {
-    push({
-      role: 'info',
-      text:
-        `╭──────────────────────────────────────────╮\n` +
-        `│  DBAgent — AI for your databases         │\n` +
-        `╰──────────────────────────────────────────╯`,
-    });
-    push({ role: 'info', text: `${props.db.describeTarget()} · session ${props.sessionLabel}` });
-  }, []);
 
   const accumulate = useCallback((u: TokenUsage) => {
     setTotals((prev) => {
@@ -511,9 +528,38 @@ export function Tui(props: TuiProps): React.ReactElement {
   );
 
   useInput((input, key) => {
+    const mouseInput = input.charCodeAt(0) === 27 ? input.slice(1) : input;
+    const mouseWheel = /^\[<(\d+);\d+;\d+M$/.exec(mouseInput);
+    if (mouseWheel) {
+      const button = Number(mouseWheel[1]);
+      const delta = Math.max(3, Math.floor(terminalSize.rows / 4));
+      if (button === 64) {
+        setScrollOffset((offset) =>
+          Math.min(Math.max(0, itemsRef.current.length - 1), offset + delta),
+        );
+      } else if (button === 65) {
+        setScrollOffset((offset) => Math.max(0, offset - delta));
+      }
+      return;
+    }
     if (pendingRef.current) {
       if (input === 'y' || input === 'Y') answerPending(true);
       else if (input === 'n' || input === 'N' || key.escape) answerPending(false);
+      return;
+    }
+    if (!showTable && key.pageUp) {
+      setScrollOffset((offset) =>
+        Math.min(
+          Math.max(0, itemsRef.current.length - 1),
+          offset + Math.max(3, Math.floor(terminalSize.rows / 2)),
+        ),
+      );
+      return;
+    }
+    if (!showTable && key.pageDown) {
+      setScrollOffset((offset) =>
+        Math.max(0, offset - Math.max(3, Math.floor(terminalSize.rows / 2))),
+      );
       return;
     }
     if (key.escape && live.busy) {
@@ -539,57 +585,101 @@ export function Tui(props: TuiProps): React.ReactElement {
   void tick; // re-render driver
 
   return (
-    <Box flexDirection="column" backgroundColor={theme.background}>
-      <Transcript items={items} expanded={toolDetail} theme={theme} />
-      {live.busy ? (
-        <LiveTurn
-          text={live.text}
-          tools={live.tools}
-          elapsedMs={elapsed}
-          usage={live.usage}
-          round={live.round}
-          expanded={toolDetail}
-          theme={theme}
-        />
-      ) : null}
-
-      {showTable ? (
-        <TableView
-          result={pickLatestTable([...live.tools, ...items.flatMap((i) => i.tools ?? [])])!}
-          onClose={() => setShowTable(false)}
-          theme={theme}
-        />
-      ) : pending ? (
-        <Box marginTop={1} flexDirection="column">
-          <Text bold>
-            Confirm {pending.req.tool} ({pending.req.kind}
-            {pending.req.tables.length > 0 ? ` on ${pending.req.tables.join(', ')}` : ''})
-          </Text>
-          {pending.req.impactEstimate ? <Text>Impact: {pending.req.impactEstimate}</Text> : null}
-          {pending.req.noWhereWarning ? (
-            <Text color={theme.error}>
-              WARNING: no WHERE clause — this affects the whole table!
-            </Text>
-          ) : null}
-          <Text>
-            SQL:{' '}
-            {pending.req.sql.length > 400 ? pending.req.sql.slice(0, 400) + '…' : pending.req.sql}
-          </Text>
-          <Text>
-            Press <Text bold>y</Text> to run · <Text bold>n</Text> to deny
-          </Text>
-        </Box>
-      ) : (
-        <Box marginTop={1}>
-          <ChatInput
-            onSubmit={handleSubmit}
-            disabled={live.busy}
-            extraCommands={skillCommands}
+    <Box
+      flexDirection="column"
+      width={terminalSize.columns}
+      height={terminalSize.rows}
+      overflow="hidden"
+      backgroundColor={theme.background}
+    >
+      <Box
+        width="100%"
+        paddingX={1}
+        paddingY={0}
+        justifyContent="space-between"
+        borderBottom
+        borderColor={theme.muted}
+      >
+        <Text color={theme.accent} bold>
+          DBAgent
+          <Text color={theme.muted}> · database assistant</Text>
+        </Text>
+        <Text color={theme.muted}>
+          {props.db.dialect.toUpperCase()} · {props.db.describeTarget()} · {props.sessionLabel}
+        </Text>
+      </Box>
+      <Box flexGrow={1} flexDirection="column" overflow="hidden" paddingX={1}>
+        {showTable ? (
+          <TableView
+            result={pickLatestTable([...live.tools, ...items.flatMap((i) => i.tools ?? [])])!}
+            onClose={() => setShowTable(false)}
             theme={theme}
           />
-        </Box>
-      )}
+        ) : (
+          <>
+            <Transcript
+              items={items}
+              expanded={toolDetail}
+              theme={theme}
+              maxLines={Math.max(3, terminalSize.rows - 11)}
+              columns={terminalSize.columns}
+              scrollOffset={scrollOffset}
+            />
+            {live.busy ? (
+              <LiveTurn
+                text={live.text}
+                tools={live.tools}
+                elapsedMs={elapsed}
+                usage={live.usage}
+                round={live.round}
+                expanded={toolDetail}
+                theme={theme}
+              />
+            ) : null}
 
+            {pending ? (
+              <Box marginTop={1} flexDirection="column">
+                <Text bold>
+                  Confirm {pending.req.tool} ({pending.req.kind}
+                  {pending.req.tables.length > 0 ? ` on ${pending.req.tables.join(', ')}` : ''})
+                </Text>
+                {pending.req.impactEstimate ? (
+                  <Text>Impact: {pending.req.impactEstimate}</Text>
+                ) : null}
+                {pending.req.noWhereWarning ? (
+                  <Text color={theme.error}>
+                    WARNING: no WHERE clause — this affects the whole table!
+                  </Text>
+                ) : null}
+                <Text>
+                  SQL:{' '}
+                  {pending.req.sql.length > 400
+                    ? pending.req.sql.slice(0, 400) + '…'
+                    : pending.req.sql}
+                </Text>
+                <Text>
+                  Press <Text bold>y</Text> to run · <Text bold>n</Text> to deny
+                </Text>
+              </Box>
+            ) : (
+              <Box
+                marginTop={1}
+                borderStyle="round"
+                borderColor={theme.accent}
+                paddingX={1}
+                width="100%"
+              >
+                <ChatInput
+                  onSubmit={handleSubmit}
+                  disabled={live.busy}
+                  extraCommands={skillCommands}
+                  theme={theme}
+                />
+              </Box>
+            )}
+          </>
+        )}
+      </Box>
       <StatusBar
         provider={props.provider}
         model={model}

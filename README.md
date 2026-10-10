@@ -124,7 +124,7 @@ Add trusted servers to `~/.dbagent/mcp.json` (or use `--mcp-config <path>`). Ser
 
 ## The TUI
 
-`chat` opens a full terminal experience (falls back to a plain REPL when stdin isn't a TTY; `--plain` forces it):
+`chat` opens a full-screen terminal experience in the alternate screen buffer when both stdin and stdout are TTYs. The header and status bar stay fixed, the prompt remains at the bottom, and recent conversation activity uses the available viewport; older transcript messages remain saved and restored with the session. Non-interactive streams fall back to a plain REPL; `--plain` forces it.
 
 | Key / Command                | Action                                                                                                       |
 | ---------------------------- | ------------------------------------------------------------------------------------------------------------ |
@@ -133,6 +133,8 @@ Add trusted servers to `~/.dbagent/mcp.json` (or use `--mcp-config <path>`). Ser
 | `ctrl+o`                     | Interactive table viewer over the latest query result (scroll `↑↓←→`/`jkhl`, page `PgUp/PgDn`, jump `g`/`G`) |
 | `ctrl+t`                     | Expand/collapse tool-call details (SQL, result previews)                                                     |
 | `ctrl+l`                     | Clear screen (session keeps the transcript)                                                                  |
+| `PgUp` / `PgDn`              | Browse older/newer transcript history                                                                        |
+| Mouse wheel                  | Scroll the conversation viewport without changing the prompt                                                 |
 | `↑` / `↓` / `Tab`            | Navigate and complete slash-command suggestions; outside the menu, arrows browse input history               |
 | `/help [command]`            | List commands or show details for one command                                                                |
 | `/model [name\|number]`      | List available models or switch mid-session, e.g. `/model 2` or `/model anthropic/claude-sonnet-4`           |
@@ -155,12 +157,13 @@ Database URLs: `sqlite://./app.db` · `postgres://user:pass@host:5432/db?ssl=tru
 
 ## Skills
 
-Skills are reusable **SKILL.md** packages — the open Agent Skills standard shared by Claude Code, Codex CLI, GitHub Copilot and Qwen Code. A skill packages a playbook (a slow-query triage, a weekly sales report, a data audit) as markdown. Only its name and description are ever loaded up front; the full instructions load when the skill is actually used, so long procedures cost nothing until you need them.
+Skills are reusable **SKILL.md** packages — the open Agent Skills standard shared by Claude Code, Codex CLI, GitHub Copilot and Qwen Code. A skill packages a playbook (a slow-query triage, a weekly sales report, a data audit) as markdown. DBAgent ships with built-in database exploration, SQL analysis, performance triage, and data-quality audit skills. Only names and descriptions are loaded up front; full instructions load when a skill is used.
 
-**Where skills live** — both locations are scanned at session start, and a project skill shadows a user skill of the same name:
+**Where skills live** — bundled skills are always available. User skills override bundled defaults; project skills override both:
 
 | Location                            | Scope                                                                      |
 | ----------------------------------- | -------------------------------------------------------------------------- |
+| bundled `skills/<name>/SKILL.md`    | built-in DBAgent playbooks                                                 |
 | `.dbagent/skills/<name>/SKILL.md`   | this project — commit it so the whole team (and every agent in CI) gets it |
 | `~/.dbagent/skills/<name>/SKILL.md` | your personal skills, available in every project on this machine           |
 

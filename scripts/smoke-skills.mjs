@@ -58,9 +58,36 @@ const skills = loadSkills({ projectDir: proj, userDir: home });
 const names = skills.map((s) => s.name);
 check(
   'discovers valid skills only',
-  names.join(',') === 'custom-report,global-tip,top-customers',
+  names.join(',') ===
+    'custom-report,data-quality-audit,database-exploration,global-tip,performance-triage,sql-analysis,top-customers',
   JSON.stringify(names),
 );
+check(
+  'ships baseline database skills as built-ins',
+  ['database-exploration', 'sql-analysis', 'performance-triage', 'data-quality-audit'].every(
+    (name) => findSkillByName(skills, name)?.source === 'builtin',
+  ),
+);
+mkSkill(
+  home,
+  'database-exploration',
+  '---\ndescription: User exploration override.\n---\n\nUSER BUILTIN OVERRIDE\n',
+);
+const userOverride = findSkillByName(
+  loadSkills({ projectDir: join(root, 'empty-project'), userDir: home }),
+  'database-exploration',
+);
+check('user skills override bundled skills', userOverride?.source === 'user');
+mkSkill(
+  proj,
+  'database-exploration',
+  '---\ndescription: Project exploration override.\n---\n\nPROJECT BUILTIN OVERRIDE\n',
+);
+const projectOverride = findSkillByName(
+  loadSkills({ projectDir: proj, userDir: home }),
+  'database-exploration',
+);
+check('project skills override user and bundled skills', projectOverride?.source === 'project');
 check(
   'frontmatter name overrides dir name',
   findSkillByName(skills, 'custom-report') !== undefined,

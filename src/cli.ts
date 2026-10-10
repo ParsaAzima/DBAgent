@@ -229,10 +229,10 @@ program
       saveSession(session);
     };
 
-    const useTui = !opts.plain && process.stdin.isTTY;
-    if (!opts.plain && !process.stdin.isTTY) {
+    const useTui = !opts.plain && process.stdin.isTTY && process.stdout.isTTY;
+    if (!opts.plain && !useTui) {
       console.log(
-        'ℹ stdin is not a TTY — falling back to plain REPL (use --plain to silence this).',
+        'ℹ stdin or stdout is not a TTY — falling back to plain REPL (use --plain to silence this).',
       );
     }
     if (useTui) {
