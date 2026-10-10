@@ -47,6 +47,7 @@ function stripLiterals(s: string): string {
  */
 function isDisguisedWrite(s: string): boolean {
   const bare = stripLiterals(s);
+  if (/^SELECT\b[\s\S]*?\bFOR\s+UPDATE\b/i.test(bare)) return true;
   if (/^SELECT\b[\s\S]*?\bINTO\b/i.test(bare)) return true;
   if (/^\s*WITH\b/i.test(bare)) {
     return /\)\s*(?:INSERT|UPDATE|DELETE|MERGE|EXEC(?:UTE)?)\b/i.test(bare);
@@ -163,9 +164,16 @@ export function enforceLimit(sql: string, maxRows: number, dialect: DatabaseDial
   if (!READ_KEYWORD.test(s)) return s;
 
   if (dialect === 'sqlserver') return tsqlLimit(s, maxRows);
+  if (dialect === 'oracle') return oracleLimit(s, maxRows);
 
   if (/^SELECT\b/i.test(s) && !/\bLIMIT\s+\d+/i.test(s)) {
     return `${s}\nLIMIT ${maxRows}`;
+  }
+
+  function oracleLimit(sql: string, maxRows: number): string {
+    if (!/^(SELECT|WITH)\b/i.test(sql)) return sql;
+    if (/\b(FETCH\s+(?:FIRST|NEXT)|ROWNUM)\b/i.test(sql)) return sql;
+    return `${sql}\nFETCH FIRST ${maxRows} ROWS ONLY`;
   }
   if (/^WITH\b/i.test(s) && !/\bLIMIT\s+\d+/i.test(s)) {
     const q = dialect === 'mysql' ? '`' : '"';

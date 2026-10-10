@@ -41,6 +41,11 @@ export interface DbStats {
 export function quoteIdent(dialect: DatabaseDialect, name: string): string {
   if (dialect === 'mysql') return `\`${name.replace(/`/g, '``')}\``;
   if (dialect === 'sqlserver') return `[${name.replace(/\]/g, ']]')}]`;
+  if (dialect === 'oracle')
+    return name
+      .split('.')
+      .map((part) => `"${part.replace(/"/g, '""')}"`)
+      .join('.');
   return `"${name.replace(/"/g, '""')}"`;
 }
 
@@ -99,6 +104,14 @@ export async function collectStats(db: DatabaseDriver): Promise<DbStats> {
           s.rowCountEstimate = Number(row.table_rows ?? s.rowCountEstimate);
         }
       }
+    } else if (db.dialect === 'oracle') {
+      const res = await db.execute(
+        `SELECT segment_name, SUM(bytes) FROM user_segments GROUP BY segment_name`,
+      );
+      const byTable = new Map(res.rows.map(([name, size]) => [String(name), Number(size)]));
+      for (const stat of stats) stat.sizeBytes = byTable.get(stat.table.toUpperCase());
+      const total = [...byTable.values()].reduce((sum, size) => sum + size, 0);
+      totalSizeBytes = total;
     } else if (db.dialect === 'sqlserver') {
       const pool = await (db as any).ensurePool();
       const total = await pool.request().query(
@@ -186,6 +199,35 @@ export async function collectSystemInfo(db: DatabaseDriver): Promise<SystemInfo>
     for (const r of st as any[]) info.settings[r.variable_name] = String(r.variable_value);
     const [up] = await conn.query('SHOW GLOBAL STATUS LIKE "Uptime"');
     info.uptimeSeconds = Number((up as any[])[0]?.Value ?? 0);
+  } else if (db.dialect === 'oracle') {
+    const conn = await (db as any).ensureConnection();
+    const version = await conn.execute(
+      `SELECT product || ' ' || version FROM product_component_version
+       WHERE product LIKE 'Oracle Database%' FETCH FIRST 1 ROWS ONLY`,
+    );
+    info.version = String(version.rows?.[0]?.[0] ?? '');
+    try {
+      const instance = await conn.execute(`SELECT startup_time, status FROM v$instance`);
+      const row = instance.rows?.[0];
+      if (row?.[0])
+        info.uptimeSeconds = Math.floor((Date.now() - new Date(row[0]).getTime()) / 1000);
+      if (row?.[1]) info.extra.status = String(row[1]);
+      const sessions = await conn.execute(`SELECT COUNT(*) FROM v$session WHERE type = 'USER'`);
+      info.activeConnections = Number(sessions.rows?.[0]?.[0] ?? 0);
+    } catch {
+      /* V$ views may require additional catalog privileges. */
+    }
+    try {
+      const params = await conn.execute(
+        `SELECT name, value FROM v$parameter
+         WHERE name IN ('sessions', 'processes', 'open_cursors')`,
+      );
+      for (const [name, value] of params.rows ?? []) {
+        info.settings[String(name)] = String(value);
+      }
+    } catch {
+      /* V$ views may require additional catalog privileges. */
+    }
   } else if (db.dialect === 'sqlserver') {
     const pool = await (db as any).ensurePool();
     const v = await pool.request().query(
@@ -422,6 +464,22 @@ async function readPage(
     const arr = Array.isArray(rows) ? rows : [rows];
     return { columns, rows: arr.map((r: any) => Object.values(r).map(cellToExport)) };
   }
+  if (db.dialect === 'oracle') {
+    const res = await (db as any)
+      .ensureConnection()
+      .then((conn: any) =>
+        conn.execute(
+          `SELECT * FROM ${qualified} OFFSET ${offset} ROWS FETCH NEXT ${limit} ROWS ONLY`,
+          [],
+          { outFormat: (db as any).oracledb.OUT_FORMAT_ARRAY },
+        ),
+      );
+    const columns = (res.metaData ?? []).map((field: any) => field.name);
+    return {
+      columns,
+      rows: (res.rows ?? []).map((row: unknown[]) => row.map(cellToExport)),
+    };
+  }
   // sqlserver: OFFSET/FETCH needs ORDER BY; (SELECT NULL) keeps it a pure dump.
   const pool = await (db as any).ensurePool();
   const res = await pool
@@ -499,6 +557,8 @@ function maxParams(dialect: DatabaseDialect): number {
       return 60000; // protocol limit is 65535
     case 'mysql':
       return Infinity; // bulk VALUES ? — chunk by rows instead
+    case 'oracle':
+      return 30000;
     case 'sqlserver':
       return 2000; // limit is 2100
   }
@@ -529,7 +589,8 @@ export async function importCsv(
   // agent-facing guarded surface and refuses non-INDEX DDL by design.
   // import_csv already requires --allow-system plus --allow-writes.
   if (opts.createTable) {
-    const colType = db.dialect === 'sqlserver' ? 'NVARCHAR(MAX)' : 'TEXT';
+    const colType =
+      db.dialect === 'sqlserver' ? 'NVARCHAR(MAX)' : db.dialect === 'oracle' ? 'CLOB' : 'TEXT';
     const colDefs = headers.map((h) => `${quoteIdent(db.dialect, h)} ${colType}`).join(', ');
     const createSql = `CREATE TABLE ${quoteIdent(db.dialect, table)} (${colDefs})`;
     if (db.dialect === 'postgres') {
@@ -540,6 +601,9 @@ export async function importCsv(
     } else if (db.dialect === 'sqlserver') {
       const pool = await (db as any).ensurePool();
       await pool.request().query(createSql);
+    } else if (db.dialect === 'oracle') {
+      const conn = await (db as any).ensureConnection();
+      await conn.execute(createSql, [], { autoCommit: true });
     } else {
       (db as any).db.exec(createSql);
     }
@@ -611,6 +675,28 @@ export async function importCsv(
       for (let i = 0; i < rows.length; i += batch) {
         const chunk = rows.slice(i, i + batch);
         await conn.query(`INSERT INTO ${target} (${cols}) VALUES ?`, [chunk]);
+        inserted += chunk.length;
+        batches++;
+        report();
+      }
+      await conn.commit();
+    } catch (err) {
+      try {
+        await conn.rollback();
+      } catch {
+        /* already failed */
+      }
+      throw err;
+    }
+  } else if (db.dialect === 'oracle') {
+    const conn = await (db as any).ensureConnection();
+    try {
+      for (let i = 0; i < rows.length; i += batch) {
+        const chunk = rows.slice(i, i + batch);
+        const marks = headers.map((_, c) => `:${c + 1}`).join(', ');
+        await conn.executeMany(`INSERT INTO ${target} (${cols}) VALUES (${marks})`, chunk, {
+          autoCommit: false,
+        });
         inserted += chunk.length;
         batches++;
         report();
@@ -715,6 +801,11 @@ export async function backup(db: DatabaseDriver, outPath: string): Promise<Backu
       method:
         bytes > 0 ? 'BACKUP DATABASE' : 'BACKUP DATABASE (file created on the SQL Server host)',
     };
+  }
+  if (db.dialect === 'oracle') {
+    throw new Error(
+      'Oracle backups are not yet available through DBAgent. Use Oracle Data Pump (expdp) or RMAN with an operator-managed backup policy.',
+    );
   }
   return runDumpTool('mysqldump', [], db, outPath, 'mysqldump');
 }

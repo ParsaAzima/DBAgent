@@ -54,6 +54,7 @@ export async function buildSystemPrompt(
     ].join('\n'),
     mysql: [
       'MySQL specifics: identifier quoting uses backticks; string literals use single quotes.',
+      'MariaDB uses the MySQL-compatible SQL dialect and backtick identifier quoting.',
       'For case-insensitive search use LIKE with a case-insensitive collation, or LOWER().',
       'For "current time" use NOW() or CURDATE().',
       'Use CONCAT() for string concatenation.',
@@ -67,6 +68,14 @@ export async function buildSystemPrompt(
       'Use + for string concatenation; search with LIKE (case-insensitive by default with typical collations).',
       'Date formats: prefer unambiguous ISO 8601 (YYYY-MM-DD) literals or CONVERT/TRY_CONVERT.',
       'Inspect plans with explain_query (actual profiling); look for Table Scans, Key Lookups, sorts spilling to tempdb, and big actual-vs-estimate row gaps.',
+    ].join('\n'),
+    oracle: [
+      'Oracle Database specifics: unquoted identifiers are stored uppercase; double quotes preserve identifier case.',
+      'Use FETCH FIRST n ROWS ONLY for row limits; do not use LIMIT or TOP.',
+      'Tables and views are listed from the current user schema; qualify cross-schema objects as schema.table.',
+      'For current date/time use SYSDATE or SYSTIMESTAMP; string concatenation uses ||.',
+      'Use NVL or COALESCE for null handling and TO_DATE/TO_TIMESTAMP with explicit formats for date literals.',
+      'Inspect plans with explain_query; Oracle uses EXPLAIN PLAN and DBMS_XPLAN output.',
     ].join('\n'),
   };
 

@@ -367,6 +367,44 @@ export function performanceQueries(dialect: DatabaseDialect): PerfQuerySpec[] {
         },
       ];
 
+    case 'oracle':
+      return [
+        {
+          name: 'invalid_indexes',
+          note: 'Indexes in UNUSABLE state cannot be used by queries; rebuild them after checking the maintenance window.',
+          sql: `SELECT index_name, table_name, status, visibility
+                FROM user_indexes
+                WHERE status <> 'VALID'
+                ORDER BY table_name, index_name
+                FETCH FIRST 20 ROWS ONLY`,
+        },
+        {
+          name: 'unused_indexes',
+          note: 'Monitoring must have been enabled with ALTER INDEX ... MONITORING USAGE; an empty result does not prove an index is unused.',
+          sql: `SELECT name AS index_name, table_name, monitoring, used, start_monitoring
+                FROM v$object_usage
+                WHERE used = 'NO'
+                FETCH FIRST 20 ROWS ONLY`,
+        },
+        {
+          name: 'table_sizes',
+          note: 'Segment allocation in the current schema; access to USER_SEGMENTS may be restricted.',
+          sql: `SELECT segment_name AS object_name, segment_type, bytes
+                FROM user_segments
+                ORDER BY bytes DESC
+                FETCH FIRST 20 ROWS ONLY`,
+        },
+        {
+          name: 'session_activity',
+          note: 'Active sessions and their wait state; access to V$SESSION may require catalog privileges.',
+          sql: `SELECT username, status, event, wait_class, seconds_in_wait
+                FROM v$session
+                WHERE type = 'USER' AND username IS NOT NULL
+                ORDER BY seconds_in_wait DESC
+                FETCH FIRST 20 ROWS ONLY`,
+        },
+      ];
+
     case 'sqlite':
     default:
       return [
@@ -470,6 +508,7 @@ const EXPLAIN_ROW_CAP = 100;
  *   sqlite     EXPLAIN QUERY PLAN (no execution)
  *   postgres   EXPLAIN [ (ANALYZE, BUFFERS) ] (analyze actually runs it)
  *   mysql      EXPLAIN (no execution)
+ *   oracle     EXPLAIN PLAN + DBMS_XPLAN.DISPLAY (no query execution)
  *   sqlserver  SET STATISTICS PROFILE ON + statement + OFF (executes)
  */
 export async function runExplain(
@@ -491,6 +530,12 @@ export async function runExplain(
 
   if (db.dialect === 'sqlserver') {
     return explainSqlServer(db, capped, start);
+  }
+  if (db.dialect === 'oracle') {
+    if (!db.explainQuery) {
+      throw new Error('This Oracle driver does not implement query-plan inspection.');
+    }
+    return db.explainQuery(capped);
   }
 
   const prefix =

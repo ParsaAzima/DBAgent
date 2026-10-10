@@ -321,6 +321,8 @@ export interface DatabaseDriver {
    * intentionally uncached.
    */
   listRoutines(): Promise<RoutineInfo[]>;
+  /** Optional dialect-specific query-plan operation (Oracle EXPLAIN PLAN). */
+  explainQuery?(sql: string): Promise<QueryResult>;
   /** Peek at table contents; always a read-only SELECT with LIMIT. */
   sampleRows(name: string, limit: number): Promise<QueryResult>;
   /** Execute a guarded SQL statement. */
@@ -334,7 +336,7 @@ export interface DatabaseDriver {
   close(): Promise<void>;
 }
 
-export type DatabaseDialect = 'sqlite' | 'postgres' | 'mysql' | 'sqlserver';
+export type DatabaseDialect = 'sqlite' | 'postgres' | 'mysql' | 'sqlserver' | 'oracle';
 
 /** Parsed database connection descriptor. */
 export interface DatabaseConnection {
@@ -351,4 +353,8 @@ export interface DatabaseConnection {
   trustServerCertificate?: boolean;
   /** SQL Server: named instance, e.g. SQLEXPRESS (uses a dynamic port). */
   instanceName?: string;
+  /** Oracle SID, when the connection URL includes ?sid=... instead of a service name. */
+  oracleSid?: string;
+  /** Oracle transport protocol. */
+  oracleProtocol?: 'tcp' | 'tcps';
 }

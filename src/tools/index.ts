@@ -592,7 +592,7 @@ export function buildTools(db: DatabaseDriver, opts: BuildToolsOptions = {}): Bu
       {
         name: 'backup',
         description:
-          'Create a database backup file: SQLite uses VACUUM INTO; PostgreSQL/MySQL use pg_dump/mysqldump; SQL Server runs BACKUP DATABASE (the .bak is written on the server host).',
+          'Create a database backup file: SQLite uses VACUUM INTO; PostgreSQL/MySQL/MariaDB use pg_dump/mysqldump; SQL Server runs BACKUP DATABASE (the .bak is written on the server host). Oracle backups must be handled by an operator with Data Pump or RMAN.',
         parameters: {
           type: 'object',
           description: 'Arguments for backup.',
@@ -609,7 +609,7 @@ export function buildTools(db: DatabaseDriver, opts: BuildToolsOptions = {}): Bu
       {
         name: 'discover_local_databases',
         description:
-          'Scan this machine for usable databases: running PostgreSQL/MySQL/SQL Server servers (port probe), SQLite files under the working directory, and available client tools.',
+          'Scan this machine for usable databases: running PostgreSQL/MySQL or MariaDB/SQL Server/Oracle servers (port probe), SQLite files under the working directory, and available client tools.',
         parameters: { type: 'object', description: 'No arguments.', properties: {}, required: [] },
       },
     ];

@@ -8,6 +8,8 @@
  *   mysql://user:pass@host:3306/db    (ssl: ?ssl=true)
  *   sqlserver://user:pass@host:1433/db (?encrypt=true&trustServerCertificate=false&instance=SQLEXPRESS)
  *   mssql://...                       (alias)
+ *   mariadb://host:3306/db (MariaDB via the MySQL-compatible driver)
+ *   oracle://user:pass@host:1521/service_name (SID: ?sid=ORCL)
  */
 
 import type {
@@ -20,6 +22,7 @@ import { SqliteDriver } from './sqlite.js';
 import { PostgresDriver } from './postgres.js';
 import { MysqlDriver } from './mysql.js';
 import { SqlServerDriver } from './sqlserver.js';
+import { OracleDriver } from './oracle.js';
 
 export function parseDatabaseUrl(url: string): DatabaseConnection {
   const trimmed = url.trim();
@@ -57,6 +60,7 @@ export function parseDatabaseUrl(url: string): DatabaseConnection {
   }
 
   const parsed = new URL(trimmed);
+  const oracleProtocol = parsed.protocol === 'oracle+tcps:' ? 'tcps' : 'tcp';
   const dialect: DatabaseDialect =
     parsed.protocol === 'postgres:' || parsed.protocol === 'postgresql:'
       ? 'postgres'
@@ -64,11 +68,13 @@ export function parseDatabaseUrl(url: string): DatabaseConnection {
         ? 'mysql'
         : parsed.protocol === 'sqlserver:' || parsed.protocol === 'mssql:'
           ? 'sqlserver'
-          : (() => {
-              throw new Error(
-                `Unsupported database URL "${trimmed}". Use sqlite://, postgres://, mysql:// or sqlserver://.`,
-              );
-            })();
+          : parsed.protocol === 'oracle:' || parsed.protocol === 'oracle+tcps:'
+            ? 'oracle'
+            : (() => {
+                throw new Error(
+                  `Unsupported database URL "${trimmed}". Use sqlite://, postgres://, mysql://, mariadb://, sqlserver:// or oracle://.`,
+                );
+              })();
 
   const sslParam = parsed.searchParams.get('ssl') ?? parsed.searchParams.get('sslmode');
   const ssl = sslParam
@@ -99,11 +105,29 @@ export function parseDatabaseUrl(url: string): DatabaseConnection {
     };
   }
 
+  if (dialect === 'oracle') {
+    const database = parsed.pathname ? decodeURIComponent(parsed.pathname.replace(/^\//, '')) : '';
+    const sid = parsed.searchParams.get('sid') ?? undefined;
+    const tcps = oracleProtocol === 'tcps' || ssl === true;
+    return {
+      dialect,
+      target: `${parsed.hostname || 'localhost'}:${parsed.port || '1521'}/${database || sid || ''}`,
+      host: parsed.hostname || 'localhost',
+      port: parsed.port ? Number(parsed.port) : 1521,
+      database: database || undefined,
+      user: parsed.username ? decodeURIComponent(parsed.username) : undefined,
+      password: parsed.password ? decodeURIComponent(parsed.password) : undefined,
+      ssl: tcps,
+      oracleProtocol: tcps ? 'tcps' : 'tcp',
+      oracleSid: sid,
+    };
+  }
+
   return {
     dialect,
     target: `${parsed.hostname ?? 'localhost'}:${parsed.port ?? ''}/${parsed.pathname.replace(/^\//, '')}`,
     host: parsed.hostname ?? 'localhost',
-    port: parsed.port ? Number(parsed.port) : undefined,
+    port: parsed.port ? Number(parsed.port) : dialect === 'mysql' ? 3306 : undefined,
     database: parsed.pathname ? decodeURIComponent(parsed.pathname.replace(/^\//, '')) : undefined,
     user: parsed.username ? decodeURIComponent(parsed.username) : undefined,
     password: parsed.password ? decodeURIComponent(parsed.password) : undefined,
@@ -122,7 +146,9 @@ export function createDatabaseDriver(url: string, safety: SafetyConfig = {}): Da
       return new MysqlDriver(conn, safety);
     case 'sqlserver':
       return new SqlServerDriver(conn, safety);
+    case 'oracle':
+      return new OracleDriver(conn, safety);
   }
 }
 
-export { SqliteDriver, PostgresDriver, MysqlDriver, SqlServerDriver };
+export { SqliteDriver, PostgresDriver, MysqlDriver, SqlServerDriver, OracleDriver };

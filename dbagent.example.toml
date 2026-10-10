@@ -25,6 +25,9 @@ api_version = "v1beta"
 
 [database]
 url = "sqlite://./demo.db"
+# MariaDB: "mariadb://localhost:3306/app"
+# Oracle service: "oracle://user:password@localhost:1521/FREEPDB1"
+# Oracle SID: "oracle://user:password@localhost:1521/?sid=ORCL"
 # url = "postgres://user:pass@localhost:5432/app?ssl=true"
 # url = "mysql://user:pass@localhost:3306/app"
 # url = "sqlserver://user:pass@localhost:1433/app"

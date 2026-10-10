@@ -14,18 +14,18 @@ An AI-powered database agent with a professional terminal UI — inspect, query,
                                                    │ DatabaseDriver interface
                                  ┌──────────┬──────┴────────┬───────────┐
                                  ▼          ▼               ▼           ▼
-                               SQLite   PostgreSQL         MySQL   SQL Server
+                       SQLite · PostgreSQL · MySQL/MariaDB · SQL Server · Oracle
 ```
 
 ## Highlights
 
 - **5 LLM providers** — OpenAI, OpenRouter (one key, hundreds of models as `vendor/model`), Anthropic, Google Gemini, Ollama (local), plus any OpenAI-compatible gateway (LM Studio, vLLM, ...)
-- **4 databases** — SQLite, PostgreSQL, MySQL, SQL Server (T-SQL) with full schema introspection
+- **6 databases** — SQLite, PostgreSQL, MySQL, MariaDB, SQL Server (T-SQL), and Oracle Database with schema introspection
 - **Performance-first agent** — `performance_report` (broken/disabled/invalid, missing, unused and duplicate indexes · cache hit · wait stats · top expensive queries · blocking · bloat) and `explain_query` (dialect-aware plan analysis) are core tools; the system prompt makes performance the primary workflow
 - **Claude-Code-class TUI** — streaming markdown, collapsible tool blocks, interactive table viewer, live token/cost status bar
 - **Token-level streaming** — SSE for all providers, cancel any response with `Esc`
 - **Hard safety rails** — read-only by default, enforced LIMIT, single-statement rule, DROP/ALTER always blocked, path sandbox, permission tiers
-- **System operations** — stats, server info, CSV/JSON export, CSV import, backups (`VACUUM INTO`, `pg_dump`, `mysqldump`, `BACKUP DATABASE`), local database discovery
+- **System operations** — stats, server info, CSV/JSON export, CSV import, backups (`VACUUM INTO`, `pg_dump`, `mysqldump`, `BACKUP DATABASE`), local database discovery (Oracle backup is operator-managed)
 - **File & shell tools** — read/write/edit/glob/grep files, run shell commands, behind explicit opt-in gates
 - **Persistent sessions** — full transcript (tool results, usage, timestamps) auto-saved and restorable with `--resume`
 - **Agent Skills** — SKILL.md packages following the open standard used by Claude Code, Codex CLI, GitHub Copilot and Qwen Code: reusable playbooks the model loads on demand, invocable directly as `/<name>`
@@ -59,6 +59,8 @@ node dist/cli.js chat --db sqlite://./demo.db --provider openrouter
 ```
 
 Ask things like _"Which product sold the most last month?"_ or _"Export the customers table and tell me the DB size"_ — the agent explores the schema, writes and runs SQL, and answers with rendered tables.
+
+MariaDB uses the MySQL-compatible driver: `mariadb://host:3306/database`. Oracle Database supports service-name URLs (`oracle://user:password@host:1521/FREEPDB1`), SID via `?sid=ORCL`, and TCPS via the `oracle+tcps://` scheme. Oracle TCPS connections require the Oracle wallet/network configuration expected by node-oracledb.
 
 ### Save database connections
 
@@ -156,17 +158,17 @@ A skill directory may hold supporting files next to `SKILL.md` (SQL scripts, ref
 
 **System mode (`--allow-system`)**
 
-| Tool                                     | Purpose                                                                                                                                       |
-| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `db_stats`                               | Per-table sizes, row counts, index counts, total DB size                                                                                      |
-| `system_info`                            | Server version, uptime, active connections, key settings                                                                                      |
-| `export_data`                            | Dump any table to CSV/JSON under `./dbagent-out/` (streamed in chunks — full dump, flat memory)                                               |
-| `import_csv`                             | Load a CSV into a table, auto-creating it from headers (also needs `--allow-writes`; single transaction, multi-row batches)                   |
-| `backup`                                 | SQLite: `VACUUM INTO` · PostgreSQL: `pg_dump` · MySQL: `mysqldump` · SQL Server: `BACKUP DATABASE` (the `.bak` is written on the server host) |
-| `discover_local_databases`               | Probe local servers, scan for SQLite files, check client tools                                                                                |
-| `read_file` / `write_file` / `edit_file` | Read (paged, 512 KB cap), create (overwrite-protected), surgical-edit files                                                                   |
-| `list_dir` / `glob_files` / `grep_files` | Navigate and search the project (`node_modules` skipped)                                                                                      |
-| `delete_file`                            | Delete a single file (directories refused)                                                                                                    |
+| Tool                                     | Purpose                                                                                                                                                 |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `db_stats`                               | Per-table sizes, row counts, index counts, total DB size                                                                                                |
+| `system_info`                            | Server version, uptime, active connections, key settings                                                                                                |
+| `export_data`                            | Dump any table to CSV/JSON under `./dbagent-out/` (streamed in chunks — full dump, flat memory)                                                         |
+| `import_csv`                             | Load a CSV into a table, auto-creating it from headers (also needs `--allow-writes`; single transaction, multi-row batches)                             |
+| `backup`                                 | SQLite: `VACUUM INTO` · PostgreSQL: `pg_dump` · MySQL/MariaDB: `mysqldump` · SQL Server: `BACKUP DATABASE`; Oracle uses operator-managed Data Pump/RMAN |
+| `discover_local_databases`               | Probe local servers, scan for SQLite files, check client tools                                                                                          |
+| `read_file` / `write_file` / `edit_file` | Read (paged, 512 KB cap), create (overwrite-protected), surgical-edit files                                                                             |
+| `list_dir` / `glob_files` / `grep_files` | Navigate and search the project (`node_modules` skipped)                                                                                                |
+| `delete_file`                            | Delete a single file (directories refused)                                                                                                              |
 
 **Shell mode (`--allow-shell`) — separate, stronger gate**
 
@@ -304,7 +306,7 @@ Test suites run without any real API keys — LLMs are scripted or served by a l
 src/
   core/       agent loop, shared types, config, system prompt, skills
   llm/        adapters (OpenAI-compatible/OpenRouter, Anthropic, Gemini) + SSE streaming
-  db/         drivers (SQLite, PostgreSQL, MySQL, SQL Server), SQL guardrails, URL factory
+  db/         drivers (SQLite, PostgreSQL, MySQL/MariaDB, SQL Server, Oracle), SQL guardrails, URL factory
   tools/      tool registry: core DB tools, system tools, file tools, shell
   session/    transcript persistence
   tui/        Ink/React UI: app, components, markdown renderer, table viewer

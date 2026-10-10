@@ -2,7 +2,7 @@
  * Local database discovery — helps the agent (and the CLI) connect to the
  * databases that already exist on this machine.
  *
- *  • running servers  : PostgreSQL 5432, MySQL 3306, SQL Server 1433 (TCP probe)
+ *  • running servers  : PostgreSQL 5432, MySQL/MariaDB 3306, SQL Server 1433, Oracle 1521
  *  • sqlite files     : *.db / *.sqlite / *.sqlite3 under cwd (shallow scan)
  *  • client tools     : psql, pg_dump, mysqldump, sqlcmd availability (for backup)
  */
@@ -13,7 +13,7 @@ import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 
 export interface DiscoveredServer {
-  kind: 'postgres' | 'mysql' | 'sqlserver';
+  kind: 'postgres' | 'mysql' | 'sqlserver' | 'oracle';
   host: string;
   port: number;
   /** Whether the matching native client tools were found in PATH. */
@@ -28,7 +28,14 @@ export interface DiscoveredFile {
 export interface Discovery {
   servers: DiscoveredServer[];
   sqliteFiles: DiscoveredFile[];
-  tools: { psql: boolean; pg_dump: boolean; mysqldump: boolean; sqlcmd: boolean; sqlite3: boolean };
+  tools: {
+    psql: boolean;
+    pg_dump: boolean;
+    mysqldump: boolean;
+    sqlcmd: boolean;
+    expdp: boolean;
+    sqlite3: boolean;
+  };
   scannedDirs: string[];
 }
 
@@ -57,10 +64,11 @@ export async function discoverLocalDatabases(
     maxFileDepth?: number;
   } = {},
 ): Promise<Discovery> {
-  const [pgUp, mysqlUp, sqlserverUp] = await Promise.all([
+  const [pgUp, mysqlUp, sqlserverUp, oracleUp] = await Promise.all([
     probePort('127.0.0.1', 5432),
     probePort('127.0.0.1', 3306),
     probePort('127.0.0.1', 1433),
+    probePort('127.0.0.1', 1521),
   ]);
 
   const servers: DiscoveredServer[] = [];
@@ -84,6 +92,13 @@ export async function discoverLocalDatabases(
       host: '127.0.0.1',
       port: 1433,
       hasDumpTool: hasTool('sqlcmd'),
+    });
+  if (oracleUp)
+    servers.push({
+      kind: 'oracle',
+      host: '127.0.0.1',
+      port: 1521,
+      hasDumpTool: hasTool('expdp'),
     });
 
   // shallow scan for sqlite files
@@ -119,6 +134,7 @@ export async function discoverLocalDatabases(
       pg_dump: hasTool('pg_dump'),
       mysqldump: hasTool('mysqldump'),
       sqlcmd: hasTool('sqlcmd'),
+      expdp: hasTool('expdp'),
       sqlite3: hasTool('sqlite3'),
     },
     scannedDirs: scanned,

@@ -46,13 +46,9 @@ const check = (name, cond, detail = '') => {
   check('url: instance param', inst.instanceName === 'SQLEXPRESS', inst.instanceName);
   check('url: named instance has no fixed port', inst.port === undefined, String(inst.port));
 
-  let threw = false;
-  try {
-    parseDatabaseUrl('oracle://x/y');
-  } catch {
-    threw = true;
-  }
-  check('url: unsupported scheme still rejected', threw);
+  const oracle = parseDatabaseUrl('oracle://user:pass@dbhost/FREEPDB1');
+  check('url: Oracle scheme is supported', oracle.dialect === 'oracle');
+  check('url: Oracle default port 1521', oracle.port === 1521, String(oracle.port));
 
   let instanceHint = '';
   try {
