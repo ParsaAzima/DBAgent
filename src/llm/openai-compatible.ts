@@ -234,7 +234,7 @@ export async function postJson(
         await sleep(backoff(baseDelay, attempt));
         continue;
       }
-      throw new Error(`Network error calling ${url}: ${(err as Error).message}`);
+      throw new Error(describeNetworkError(err, url));
     }
 
     const text = await res.text();
@@ -264,6 +264,41 @@ export async function postJson(
 function backoff(baseMs: number, attempt: number): number {
   const jitter = Math.random() * 250;
   return baseMs * 2 ** attempt + jitter;
+}
+
+/**
+ * Turn a raw fetch failure (and its cause chain) into an actionable message.
+ * Shared with the streaming path — bare "fetch failed" tells the operator
+ * nothing about DNS, TLS, proxy, or firewall problems.
+ */
+export function describeNetworkError(err: unknown, url: string): string {
+  const e = err as Error & { cause?: unknown };
+  if (e?.name === 'AbortError') return 'Request aborted.';
+  const parts: string[] = [];
+  let code: string | undefined;
+  for (
+    let cause: unknown = e, depth = 0;
+    cause && depth < 4;
+    cause = (cause as { cause?: unknown }).cause, depth++
+  ) {
+    const c = cause as { code?: string; message?: string };
+    if (typeof c?.code === 'string' && !code) code = c.code;
+    const msg = typeof c?.message === 'string' ? c.message : '';
+    if (msg && !parts.includes(msg) && msg !== e?.message) parts.push(msg);
+  }
+  const hints: Record<string, string> = {
+    ENOTFOUND: 'DNS lookup failed — check the hostname / your internet connection.',
+    EAI_AGAIN: 'DNS lookup timed out — transient network issue, retry.',
+    ECONNREFUSED: 'connection refused — is the host/port reachable (proxy or firewall)?',
+    ETIMEDOUT: 'connection timed out — network or firewall is dropping the traffic.',
+    ECONNRESET: 'connection reset by peer — a proxy/middlebox closed the request.',
+    EHOSTUNREACH: 'host unreachable — routing issue or the host is down.',
+    CERT_HAS_EXPIRED: 'TLS certificate expired on the server.',
+    UND_ERR_SOCKET: 'socket closed before the response arrived — network flake, retry.',
+  };
+  let msg = `Network error calling ${url}: ${parts.join(' — ') || e?.message || 'fetch failed'}`;
+  if (code) msg += ` [${code}${hints[code] ? `: ${hints[code]}` : ''}]`;
+  return msg;
 }
 
 function sleep(ms: number): Promise<void> {

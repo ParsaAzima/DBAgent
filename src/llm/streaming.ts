@@ -10,7 +10,7 @@
  */
 
 import type { AgentMessage, ToolSpec, LLMProviderConfig, StreamEvent } from '../core/types.js';
-import { postJson, safeParse } from './openai-compatible.js';
+import { describeNetworkError, safeParse } from './openai-compatible.js';
 import { toOpenAIMessage } from './openai-stream-shared.js';
 
 export type { StreamEvent };
@@ -66,12 +66,30 @@ async function postStream(
   headers: Record<string, string>,
   signal?: AbortSignal,
 ): Promise<Response> {
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', ...headers },
-    body: JSON.stringify(body),
-    signal,
-  });
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...headers },
+      body: JSON.stringify(body),
+      signal,
+    });
+  } catch {
+    if (signal?.aborted) throw new Error('Request aborted.');
+    // fetch failed before any response arrived (safe to retry once: a flaky
+    // network is the usual cause of bare "fetch failed").
+    await new Promise((r) => setTimeout(r, 800));
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...headers },
+        body: JSON.stringify(body),
+        signal,
+      });
+    } catch (err2) {
+      throw new Error(describeNetworkError(err2, url));
+    }
+  }
   if (!res.ok || !res.body) {
     const text = await res.text().catch(() => '');
     let json: any = null;
