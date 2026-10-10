@@ -23,7 +23,7 @@ import { toOpenAIMessage } from './openai-stream-shared.js';
 import { streamOpenAICompatible } from './streaming.js';
 
 export class OpenAICompatibleAdapter implements LLMAdapter {
-  readonly id: 'openai' | 'openrouter' | 'ollama';
+  readonly id: 'openai' | 'openrouter' | 'ollama' | 'custom';
   readonly model: string;
   private readonly apiKey?: string;
   private readonly baseUrl: string;
@@ -31,7 +31,12 @@ export class OpenAICompatibleAdapter implements LLMAdapter {
   private readonly maxOutputTokens: number;
 
   constructor(cfg: LLMProviderConfig) {
-    if (cfg.id !== 'openai' && cfg.id !== 'openrouter' && cfg.id !== 'ollama') {
+    if (
+      cfg.id !== 'openai' &&
+      cfg.id !== 'openrouter' &&
+      cfg.id !== 'ollama' &&
+      cfg.id !== 'custom'
+    ) {
       throw new Error(`OpenAICompatibleAdapter cannot serve provider "${cfg.id}"`);
     }
     this.id = cfg.id;

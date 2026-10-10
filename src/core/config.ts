@@ -9,10 +9,11 @@
 
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import type { DdlMode, LLMProviderConfig, LLMProviderId } from './types.js';
+import type { BuiltinLLMProviderId, DdlMode, LLMProviderConfig, LLMProviderId } from './types.js';
+import { loadCustomProviders, type CustomProvider } from './custom-providers.js';
 
 /** Built-in model defaults; overridable via CLI flag / env. */
-export const DEFAULT_MODELS: Record<LLMProviderId, string> = {
+export const DEFAULT_MODELS: Record<BuiltinLLMProviderId, string> = {
   openai: 'gpt-4o-mini',
   openrouter: 'openai/gpt-4o-mini',
   anthropic: 'claude-sonnet-4-20250514',
@@ -20,7 +21,13 @@ export const DEFAULT_MODELS: Record<LLMProviderId, string> = {
   ollama: 'llama3.1',
 };
 
-const PROVIDER_IDS: LLMProviderId[] = ['openai', 'openrouter', 'anthropic', 'gemini', 'ollama'];
+const PROVIDER_IDS: BuiltinLLMProviderId[] = [
+  'openai',
+  'openrouter',
+  'anthropic',
+  'gemini',
+  'ollama',
+];
 
 export interface ResolvedConfig {
   provider: LLMProviderId;
@@ -64,11 +71,53 @@ export function loadDotEnv(dir: string = process.cwd()): void {
   }
 }
 
-export function parseProvider(value: string | undefined): LLMProviderId | undefined {
+export function parseProvider(value: string | undefined): BuiltinLLMProviderId | undefined {
   if (!value) return undefined;
   const v = value.toLowerCase().trim();
   const found = PROVIDER_IDS.find((p) => p === v);
   return found;
+}
+
+export function resolveLLMConfig(
+  opts: {
+    providerFlag?: string;
+    modelFlag?: string;
+  } = {},
+  customProviders = loadCustomProviders(),
+): { provider: LLMProviderId; llm: LLMProviderConfig } {
+  const requestedProvider = opts.providerFlag ?? process.env.DBAGENT_PROVIDER ?? 'openai';
+  const builtInProvider = parseProvider(requestedProvider);
+  const customProvider: CustomProvider | undefined = builtInProvider
+    ? undefined
+    : customProviders[requestedProvider];
+  if (!builtInProvider && !customProvider) {
+    throw new Error(
+      `Unknown provider "${requestedProvider}". Built-in providers: ${PROVIDER_IDS.join(', ')}. Add a custom provider with "dbagent provider add".`,
+    );
+  }
+
+  const provider: LLMProviderId = builtInProvider ?? 'custom';
+  const llm: LLMProviderConfig = {
+    id: provider,
+    providerName: customProvider?.name,
+    model:
+      opts.modelFlag ??
+      process.env.DBAGENT_MODEL ??
+      customProvider?.defaultModel ??
+      (builtInProvider ? DEFAULT_MODELS[builtInProvider] : ''),
+    temperature: num(process.env.DBAGENT_TEMPERATURE, 0.1),
+    maxOutputTokens: num(process.env.DBAGENT_MAX_OUTPUT_TOKENS, 2048),
+    apiKey: customProvider?.apiKeyEnv
+      ? (process.env[customProvider.apiKeyEnv] ?? process.env.DBAGENT_API_KEY)
+      : builtInProvider
+        ? apiKeyFor(builtInProvider)
+        : undefined,
+    apiKeyEnv: customProvider?.apiKeyEnv,
+    apiKeyRequired: !!customProvider?.apiKeyEnv,
+    baseUrl: customProvider?.baseUrl ?? (builtInProvider ? baseUrlFor(builtInProvider) : undefined),
+    apiVersion: process.env.GEMINI_API_VERSION,
+  };
+  return { provider, llm };
 }
 
 export function resolveConfig(opts: {
@@ -83,17 +132,7 @@ export function resolveConfig(opts: {
   maskPiiFlag?: boolean;
   maxRowsFlag?: number;
 }): ResolvedConfig {
-  const provider = parseProvider(opts.providerFlag ?? process.env.DBAGENT_PROVIDER) ?? 'openai';
-
-  const llm: LLMProviderConfig = {
-    id: provider,
-    model: opts.modelFlag ?? process.env.DBAGENT_MODEL ?? DEFAULT_MODELS[provider],
-    temperature: num(process.env.DBAGENT_TEMPERATURE, 0.1),
-    maxOutputTokens: num(process.env.DBAGENT_MAX_OUTPUT_TOKENS, 2048),
-    apiKey: apiKeyFor(provider),
-    baseUrl: baseUrlFor(provider),
-    apiVersion: process.env.GEMINI_API_VERSION,
-  };
+  const { provider, llm } = resolveLLMConfig(opts);
 
   const dbUrl = opts.dbUrlFlag ?? process.env.DBAGENT_DB_URL;
   if (!dbUrl) {
@@ -118,7 +157,7 @@ export function resolveConfig(opts: {
   };
 }
 
-function apiKeyFor(provider: LLMProviderId): string | undefined {
+function apiKeyFor(provider: BuiltinLLMProviderId): string | undefined {
   // Provider-specific vars win; DBAGENT_API_KEY is the generic fallback
   // (set by dbagent.toml [llm] api_key, or directly in the environment).
   const generic = process.env.DBAGENT_API_KEY;
@@ -136,7 +175,7 @@ function apiKeyFor(provider: LLMProviderId): string | undefined {
   }
 }
 
-function baseUrlFor(provider: LLMProviderId): string | undefined {
+function baseUrlFor(provider: BuiltinLLMProviderId): string | undefined {
   const generic = process.env.DBAGENT_BASE_URL;
   switch (provider) {
     case 'openai':

@@ -107,6 +107,7 @@ stdin.unref = () => stdin;
 
 const hooks: AgentHooks = {};
 let selectedTheme = '';
+let selectedModel = '';
 
 const { unmount, waitUntilExit } = render(
   <Tui
@@ -123,6 +124,10 @@ const { unmount, waitUntilExit } = render(
     initialTheme="catppuccin-latte"
     onThemeSwitch={(name) => {
       selectedTheme = name;
+    }}
+    onListModels={async () => ['model-one', 'model-two']}
+    onModelSwitch={(model) => {
+      selectedModel = model;
     }}
     onSave={() => {}}
   />,
@@ -264,6 +269,21 @@ await feed('\r', 300);
 delta = deltaSince(mark);
 check('theme command persists selected theme', selectedTheme === 'dracula', selectedTheme);
 check('theme command confirms selected theme', delta.includes('Theme changed to dracula'));
+
+// ── /model lists models and selects a numbered entry ──
+mark = snapshot().length;
+await type('/model');
+await feed('\r', 300);
+delta = deltaSince(mark);
+check(
+  'model command lists provider models',
+  delta.includes('model-one') && delta.includes('model-two'),
+);
+await type('/model 2');
+await feed('\r', 300);
+delta = deltaSince(mark);
+check('model command selects a listed model', selectedModel === 'model-two', selectedModel);
+check('model command confirms selected model', delta.includes('model → model-two'));
 
 unmount();
 await waitUntilExit();

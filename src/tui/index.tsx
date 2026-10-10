@@ -7,14 +7,14 @@ import React from 'react';
 import { render } from 'ink';
 import type { Agent } from '../core/agent.js';
 import type { Skill } from '../core/skills.js';
-import type { AgentHooks, DatabaseDriver, LLMProviderId } from '../core/types.js';
+import type { AgentHooks, DatabaseDriver } from '../core/types.js';
 import { Tui } from './app.js';
 import type { ThemeName } from './theme.js';
 
 export interface RenderTuiOptions {
   agent: Agent;
   db: DatabaseDriver;
-  provider: LLMProviderId;
+  provider: string;
   model: string;
   allowWrites: boolean;
   /** Skip the y/n write gate (operator passed --yes). */
@@ -30,6 +30,7 @@ export interface RenderTuiOptions {
   /** Restored TUI transcript from a previous session. */
   initialItems?: unknown[];
   onModelSwitch?: (model: string) => void;
+  onListModels?: () => Promise<string[]>;
   onSave?: (transcript?: unknown[]) => void;
 }
 
@@ -50,6 +51,7 @@ export function renderTui(opts: RenderTuiOptions): { waitUntilExit: Promise<void
       onThemeSwitch={opts.onThemeSwitch}
       initialItems={opts.initialItems as never}
       onModelSwitch={opts.onModelSwitch}
+      onListModels={opts.onListModels}
       onSave={opts.onSave ?? undefined}
     />,
     { exitOnCtrlC: true },

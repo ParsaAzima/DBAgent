@@ -25,6 +25,7 @@ import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { parse as parseToml } from 'smol-toml';
 import { parseDdlMode, parseProvider } from './config.js';
+import { loadCustomProviders } from './custom-providers.js';
 
 export const CONFIG_FILE_NAME = 'dbagent.toml';
 
@@ -166,11 +167,15 @@ export function validateConfigDoc(doc: Record<string, unknown>, path: string): F
   }
   // Semantic checks with file context.
   const provider = out.llm?.provider;
-  if (provider !== undefined && !parseProvider(String(provider))) {
+  if (
+    provider !== undefined &&
+    !parseProvider(String(provider)) &&
+    !loadCustomProviders()[String(provider)]
+  ) {
     fail(
       path,
       '[llm] provider =',
-      `"${provider}" — expected one of: openai, openrouter, anthropic, gemini, ollama.`,
+      `"${provider}" — expected one of the built-in providers or a configured custom provider.`,
     );
   }
   const ddl = out.safety?.allow_ddl;

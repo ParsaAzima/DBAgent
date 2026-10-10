@@ -14,9 +14,17 @@ import { Command } from 'commander';
 import { Agent } from './core/agent.js';
 import type { AgentHooks } from './core/types.js';
 import { createAuditSink } from './system/audit.js';
-import { loadDotEnv, resolveConfig, PROVIDER_IDS } from './core/config.js';
+import { loadDotEnv, resolveConfig, resolveLLMConfig, PROVIDER_IDS } from './core/config.js';
 import { initFileConfig } from './core/config-file.js';
 import { assertApiKeyPresent, createLLMAdapter } from './llm/factory.js';
+import { listProviderModels } from './llm/models.js';
+import {
+  loadCustomProviders,
+  removeCustomProvider,
+  saveCustomProvider,
+} from './core/custom-providers.js';
+import { loadMcpConfig } from './mcp/config.js';
+import { McpClientManager } from './mcp/client.js';
 import { createDatabaseDriver } from './db/factory.js';
 import { randomUUID } from 'node:crypto';
 import {
@@ -81,7 +89,7 @@ program
   .command('chat')
   .description('Interactive chat with your database (TUI; --plain for simple REPL).')
   .option('--db <url>', 'Database URL or saved connection name (manage with "dbagent db")')
-  .option('--provider <id>', `LLM provider (${PROVIDER_IDS.join('|')})`)
+  .option('--provider <id>', `LLM provider (${PROVIDER_IDS.join('|')} or a saved custom provider)`)
   .option('--model <name>', 'Model name override')
   .option('--allow-writes', 'Enable INSERT/UPDATE/DELETE (read-only by default)', false)
   .option(
@@ -96,6 +104,8 @@ program
     false,
   )
   .option('--allow-shell', 'Enable the bash tool (runs shell commands) — use with care', false)
+  .option('--allow-mcp', 'Enable configured external MCP servers and their tools', false)
+  .option('--mcp-config <path>', 'MCP server config (default: ~/.dbagent/mcp.json)')
   .option('--max-rows <n>', 'Hard LIMIT for read queries', parseInt)
   .option('--resume [id]', 'Resume a saved session (latest if no id given)')
   .option('--config <path>', 'TOML config file (default: ./dbagent.toml, ~/.dbagent/config.toml)')
@@ -162,6 +172,19 @@ program
       console.error(`✗ ${(err as Error).message}`);
       process.exit(1);
     }
+    let mcp: McpClientManager | undefined;
+    if (opts.allowMcp) {
+      try {
+        mcp = await McpClientManager.connect(opts.mcpConfig);
+        console.log(
+          `Connected MCP servers: ${mcp.serverNames.join(', ')}. Only configured trusted servers are enabled; their tools may perform external actions.`,
+        );
+      } catch (err) {
+        await db.close();
+        console.error(`✗ ${(err as Error).message}`);
+        process.exit(1);
+      }
+    }
 
     // Agent Skills (SKILL.md packages): .dbagent/skills (project) +
     // ~/.dbagent/skills (user). Body loads on demand via use_skill or /name.
@@ -180,6 +203,7 @@ program
       maskPii: cfg.maskPii,
       hooks,
       skills,
+      mcpTools: mcp?.tools,
     });
     hooks.audit = createAuditSink({ sessionId, dbTarget: db.describeTarget() });
     // Restore prior transcript into the agent.
@@ -197,7 +221,7 @@ program
         createdAt: existing?.createdAt ?? new Date().toISOString(),
         updatedAt: existing?.updatedAt ?? new Date().toISOString(),
         dbUrl: cfg.dbUrl,
-        provider: cfg.llm.id,
+        provider: cfg.llm.providerName ?? cfg.llm.id,
         model: cfg.llm.model,
         messages: agent.getHistory(),
         tuiItems: tuiItems ?? existing?.tuiItems,
@@ -214,37 +238,42 @@ program
     if (useTui) {
       // ── Modern TUI (streaming, markdown, tool lines) ──
       const { renderTui } = await import('./tui/index.js');
-      await renderTui({
-        agent,
-        db,
-        provider: cfg.llm.id,
-        model: cfg.llm.model,
-        allowWrites: cfg.allowWrites,
-        assumeYes: cfg.assumeYes,
-        hooks,
-        maxRows: cfg.maxRows,
-        sessionLabel: sessionId,
-        skills,
-        initialTheme: theme,
-        onThemeSwitch: (name: string) => {
-          saveTheme(name);
-        },
-        initialItems: tuiItems as never,
-        onModelSwitch: (model: string) => {
-          const nextConfig = { ...cfg.llm, model };
-          const nextAdapter = createLLMAdapter(nextConfig);
-          agent.setModel(model, nextAdapter);
-          cfg.llm.model = model;
-        },
-        onSave: (transcript?: unknown[]) => persist(transcript),
-      });
-      await db.close();
+      try {
+        await renderTui({
+          agent,
+          db,
+          provider: cfg.llm.providerName ?? cfg.llm.id,
+          model: cfg.llm.model,
+          allowWrites: cfg.allowWrites,
+          assumeYes: cfg.assumeYes,
+          hooks,
+          maxRows: cfg.maxRows,
+          sessionLabel: sessionId,
+          skills,
+          initialTheme: theme,
+          onThemeSwitch: (name: string) => {
+            saveTheme(name);
+          },
+          initialItems: tuiItems as never,
+          onModelSwitch: (model: string) => {
+            const nextConfig = { ...cfg.llm, model };
+            const nextAdapter = createLLMAdapter(nextConfig);
+            agent.setModel(model, nextAdapter);
+            cfg.llm.model = model;
+          },
+          onListModels: () => listProviderModels(cfg.llm),
+          onSave: (transcript?: unknown[]) => persist(transcript),
+        });
+      } finally {
+        await mcp?.close();
+        await db.close();
+      }
       return;
     }
 
     console.log(`DBAgent v${CLI_VERSION} (plain REPL)`);
     console.log(`  DB      : ${db.describeTarget()}  (${redactDbUrl(cfg.dbUrl)})`);
-    console.log(`  Model   : ${cfg.llm.id}/${cfg.llm.model}`);
+    console.log(`  Model   : ${cfg.llm.providerName ?? cfg.llm.id}/${cfg.llm.model}`);
     if (configPath) console.log(`  Config  : ${configPath}`);
     console.log(
       `  Mode    : ${cfg.allowWrites ? 'READ+WRITE' : 'READ-ONLY'} (max ${cfg.maxRows ?? 100} rows)`,
@@ -276,11 +305,19 @@ program
         });
     }
     const prompt = () => rl.question('you > ', (answer) => void handleInput(answer.trim()));
+    rl.once('close', () => {
+      void mcp?.close().catch((err: unknown) => {
+        console.error(
+          `✗ Failed to close MCP server connection: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
+    });
 
     const handleInput = async (input: string): Promise<void> => {
       if (!input) return prompt();
       if (input === '/exit' || input === '/quit') {
         persist();
+        await mcp?.close();
         await db.close();
         rl.close();
         return;
@@ -348,6 +385,7 @@ program
         console.log('/save  persist session     /schema dump tables & columns');
         console.log('/refresh re-read schema after external DDL');
         console.log('/skills list installed skills (/name runs one)');
+        if (mcp) console.log('MCP tools are enabled from trusted configured servers.');
         return prompt();
       }
       if (input === '/skills') {
@@ -392,10 +430,12 @@ program
   .description('One-shot question about the database.')
   .argument('<question>', 'Your question in natural language')
   .option('--db <url>', 'Database URL or saved connection name')
-  .option('--provider <id>', `LLM provider (${PROVIDER_IDS.join('|')})`)
+  .option('--provider <id>', `LLM provider (${PROVIDER_IDS.join('|')} or a saved custom provider)`)
   .option('--model <name>', 'Model name override')
   .option('--allow-writes', 'Enable writes (discouraged for one-shots)', false)
   .option('--allow-system', 'Enable system tools (stats/export/import/backup/discover)', false)
+  .option('--allow-mcp', 'Enable configured external MCP servers and their tools', false)
+  .option('--mcp-config <path>', 'MCP server config (default: ~/.dbagent/mcp.json)')
   .option('--allow-ddl [mode]', 'CREATE INDEX gate: dry-run or on (bare flag = dry-run)')
   .option('--no-mask-pii', 'Disable PII masking in results (shows exact values)')
   .option('--yes', 'Auto-confirm write prompts (dangerous: no y/n gate)', false)
@@ -424,29 +464,40 @@ program
     }
     try {
       assertApiKeyPresent(cfg.llm);
-      // No confirm handler unless --yes: writes are denied in non-interactive
-      // mode instead of hanging on a prompt nobody can answer.
-      const hooks: AgentHooks = {};
-      if (cfg.assumeYes) hooks.confirm = async () => true;
-      const askId = `ask-${randomUUID().slice(0, 8)}`;
-      const result = await withDb(
-        cfg.dbUrl,
-        { allowWrites: cfg.allowWrites, ddlMode: cfg.ddlMode, maxRows: cfg.maxRows },
-        async (db) => {
-          hooks.audit = createAuditSink({ sessionId: askId, dbTarget: db.describeTarget() });
-          const llm = createLLMAdapter(cfg.llm);
-          const agent = new Agent(llm, db, cfg.llm, cfg.maxRounds, {
-            allowSystem: cfg.allowSystem,
-            allowWrites: cfg.allowWrites,
-            ddlMode: cfg.ddlMode,
-            maskPii: cfg.maskPii,
-            hooks,
-            skills: loadSkills(),
-          });
-          return agent.runTurn(question, { timeoutMs: cfg.timeoutMs });
-        },
-      );
-      console.log(result.text);
+      const mcp = opts.allowMcp ? await McpClientManager.connect(opts.mcpConfig) : undefined;
+      try {
+        if (mcp) {
+          console.error(
+            `MCP tools enabled for ${mcp.serverNames.join(', ')}. Only enable trusted servers; their tools may perform external actions.`,
+          );
+        }
+        // No confirm handler unless --yes: writes are denied in non-interactive
+        // mode instead of hanging on a prompt nobody can answer.
+        const hooks: AgentHooks = {};
+        if (cfg.assumeYes) hooks.confirm = async () => true;
+        const askId = `ask-${randomUUID().slice(0, 8)}`;
+        const result = await withDb(
+          cfg.dbUrl,
+          { allowWrites: cfg.allowWrites, ddlMode: cfg.ddlMode, maxRows: cfg.maxRows },
+          async (db) => {
+            hooks.audit = createAuditSink({ sessionId: askId, dbTarget: db.describeTarget() });
+            const llm = createLLMAdapter(cfg.llm);
+            const agent = new Agent(llm, db, cfg.llm, cfg.maxRounds, {
+              allowSystem: cfg.allowSystem,
+              allowWrites: cfg.allowWrites,
+              ddlMode: cfg.ddlMode,
+              maskPii: cfg.maskPii,
+              hooks,
+              skills: loadSkills(),
+              mcpTools: mcp?.tools,
+            });
+            return agent.runTurn(question, { timeoutMs: cfg.timeoutMs });
+          },
+        );
+        console.log(result.text);
+      } finally {
+        await mcp?.close();
+      }
     } catch (err) {
       console.error(`✗ ${(err as Error).message}`);
       process.exit(1);
@@ -635,6 +686,140 @@ themeCmd.action(() => {
   console.log(`Current TUI theme: ${current} (${THEMES[current].style})`);
   console.log('Use "dbagent theme list" to list themes or "dbagent theme set <name>" to switch.');
 });
+
+program
+  .command('models')
+  .description('List models available from an LLM provider.')
+  .argument(
+    '[provider]',
+    'Built-in provider or saved custom provider (defaults to current provider)',
+  )
+  .option('--config <path>', 'TOML config file')
+  .action(async (provider: string | undefined, opts) => {
+    try {
+      loadDotEnv();
+      initFileConfig(opts.config);
+      const { llm } = resolveLLMConfig({ providerFlag: provider });
+      assertApiKeyPresent(llm);
+      const models = await listProviderModels(llm);
+      console.log(`Models for ${llm.providerName ?? llm.id}:`);
+      for (const model of models) {
+        console.log(`${model === llm.model ? '* ' : '  '}${model}`);
+      }
+      console.log(
+        `\nSelect with: dbagent chat --provider ${llm.providerName ?? llm.id} --model <name>`,
+      );
+    } catch (err) {
+      console.error(`✗ ${(err as Error).message}`);
+      process.exitCode = 1;
+    }
+  });
+
+const providerCmd = program
+  .command('provider')
+  .description('Manage custom OpenAI-compatible LLM providers.');
+providerCmd
+  .command('list')
+  .description('List built-in and saved custom providers.')
+  .action(() => {
+    try {
+      console.log(`Built-in: ${PROVIDER_IDS.join(', ')}`);
+      const providers = Object.values(loadCustomProviders());
+      if (providers.length === 0) return console.log('Custom: (none)');
+      console.log('Custom:');
+      for (const provider of providers) {
+        console.log(
+          `  ${provider.name} — ${provider.baseUrl} · default model ${provider.defaultModel}` +
+            (provider.apiKeyEnv ? ` · API key from $${provider.apiKeyEnv}` : ''),
+        );
+      }
+    } catch (err) {
+      console.error(`✗ ${(err as Error).message}`);
+      process.exitCode = 1;
+    }
+  });
+providerCmd
+  .command('add')
+  .description(
+    'Save an OpenAI-compatible provider profile; API keys stay in environment variables.',
+  )
+  .argument('<name>', 'Provider name (lowercase letters, numbers, and hyphens)')
+  .requiredOption('--base-url <url>', 'Provider API base URL')
+  .requiredOption('--model <name>', 'Default model identifier')
+  .option('--api-key-env <variable>', 'Environment variable containing the API key')
+  .action((name: string, opts) => {
+    try {
+      saveCustomProvider({
+        name,
+        baseUrl: opts.baseUrl,
+        defaultModel: opts.model,
+        apiKeyEnv: opts.apiKeyEnv,
+      });
+      console.log(`✓ Custom provider "${name}" saved. Use --provider ${name} to connect.`);
+    } catch (err) {
+      console.error(`✗ ${(err as Error).message}`);
+      process.exitCode = 1;
+    }
+  });
+providerCmd
+  .command('remove')
+  .description('Remove a saved custom provider.')
+  .argument('<name>')
+  .action((name: string) => {
+    try {
+      if (!removeCustomProvider(name)) {
+        console.error(`✗ Custom provider not found: ${name}`);
+        process.exitCode = 1;
+        return;
+      }
+      console.log(`✓ Removed custom provider "${name}".`);
+    } catch (err) {
+      console.error(`✗ ${(err as Error).message}`);
+      process.exitCode = 1;
+    }
+  });
+
+const mcpCmd = program
+  .command('mcp')
+  .description('Inspect and test configured MCP servers (tools require --allow-mcp).');
+mcpCmd
+  .command('list')
+  .description('List configured MCP servers without starting them.')
+  .option('--mcp-config <path>', 'MCP server config (default: ~/.dbagent/mcp.json)')
+  .action((opts) => {
+    try {
+      const { mcpServers } = loadMcpConfig(opts.mcpConfig);
+      const servers = Object.entries(mcpServers);
+      if (servers.length === 0) return console.log('(no MCP servers configured)');
+      for (const [name, server] of servers) {
+        console.log(
+          `${name} — ${'command' in server ? `stdio: ${server.command}` : `HTTP: ${server.url}`}`,
+        );
+      }
+    } catch (err) {
+      console.error(`✗ ${(err as Error).message}`);
+      process.exitCode = 1;
+    }
+  });
+mcpCmd
+  .command('test')
+  .description('Connect to one configured MCP server and list its tools.')
+  .argument('<server>', 'Configured MCP server name')
+  .option('--mcp-config <path>', 'MCP server config (default: ~/.dbagent/mcp.json)')
+  .action(async (server: string, opts) => {
+    let mcp: McpClientManager | undefined;
+    try {
+      mcp = await McpClientManager.connect(opts.mcpConfig, server);
+      const tools = mcp.tools;
+      console.log(`Connected to ${server}; ${tools.length} tool(s):`);
+      for (const tool of tools) console.log(`  ${tool.spec.name} — ${tool.spec.description}`);
+    } catch (err) {
+      console.error(`✗ ${(err as Error).message}`);
+      process.exitCode = 1;
+    } finally {
+      await mcp?.close();
+    }
+  });
 
 const sessionsCmd = program.command('sessions').description('Manage saved chat sessions.');
 sessionsCmd.command('list').action(() => {

@@ -19,11 +19,12 @@ An AI-powered database agent with a professional terminal UI — inspect, query,
 
 ## Highlights
 
-- **5 LLM providers** — OpenAI, OpenRouter (one key, hundreds of models as `vendor/model`), Anthropic, Google Gemini, Ollama (local), plus any OpenAI-compatible gateway (LM Studio, vLLM, ...)
+- **5 built-in LLM providers** — OpenAI, OpenRouter (one key, hundreds of models as `vendor/model`), Anthropic, Google Gemini, and Ollama (local), plus saved custom OpenAI-compatible gateways (LM Studio, vLLM, and others)
 - **6 databases** — SQLite, PostgreSQL, MySQL, MariaDB, SQL Server (T-SQL), and Oracle Database with schema introspection
 - **Performance-first agent** — `performance_report` (broken/disabled/invalid, missing, unused and duplicate indexes · cache hit · wait stats · top expensive queries · blocking · bloat) and `explain_query` (dialect-aware plan analysis) are core tools; the system prompt makes performance the primary workflow
 - **Claude-Code-class TUI** — streaming markdown, collapsible tool blocks, interactive table viewer, live token/cost status bar
 - **Token-level streaming** — SSE for all providers, cancel any response with `Esc`
+- **MCP client** — connect trusted Model Context Protocol servers over stdio or Streamable HTTP; tools are opt-in per session
 - **Hard safety rails** — read-only by default, enforced LIMIT, single-statement rule, DROP/ALTER always blocked, path sandbox, permission tiers
 - **System operations** — stats, server info, CSV/JSON export, CSV import, backups (`VACUUM INTO`, `pg_dump`, `mysqldump`, `BACKUP DATABASE`), local database discovery (Oracle backup is operator-managed)
 - **File & shell tools** — read/write/edit/glob/grep files, run shell commands, behind explicit opt-in gates
@@ -75,6 +76,52 @@ dbagent chat --provider openrouter
 
 Use `dbagent db list` to see saved names, `dbagent db use <name>` to switch the default, or pass `--db <name>` for a one-off connection. `dbagent db remove <name>` deletes a saved connection. The existing `--db <url>`, `DBAGENT_DB_URL`, and `[database] url` options continue to work; explicit `--db` and `DBAGENT_DB_URL` take precedence over the saved default. Connection storage is restricted to the current user where the operating system supports file permissions.
 
+### Providers and model selection
+
+Fetch the live model list from the provider before choosing a model:
+
+```bash
+dbagent models openrouter
+dbagent chat --provider openrouter --model anthropic/claude-sonnet-4
+```
+
+Inside an interactive chat, `/model` lists available models and `/model 2` or `/model <model-id>` switches models without restarting.
+
+Add any OpenAI-compatible API endpoint as a named provider. The API key is read from an environment variable and is never saved in the provider profile:
+
+```bash
+dbagent provider add lmstudio --base-url http://localhost:1234/v1 --model local-model
+dbagent provider add mygateway --base-url https://llm.example.com/v1 --model model-id --api-key-env MYGATEWAY_API_KEY
+$env:MYGATEWAY_API_KEY = "..." # PowerShell; use export MYGATEWAY_API_KEY=... in Bash
+dbagent provider list
+dbagent models mygateway
+dbagent chat --provider mygateway
+```
+
+Provider profiles are stored in `~/.dbagent/providers.json` with user-only file permissions. Use `dbagent provider remove <name>` to remove one. Built-in model listing is supported for OpenAI-compatible APIs, Anthropic, Gemini, and Ollama.
+
+### MCP servers
+
+Add trusted servers to `~/.dbagent/mcp.json` (or use `--mcp-config <path>`). Servers use stdio with `command`, or Streamable HTTP with `url`:
+
+```json
+{
+  "mcpServers": {
+    "local-tools": {
+      "command": "python",
+      "args": ["-m", "my_mcp_server"],
+      "env": { "SERVICE_TOKEN": "${SERVICE_TOKEN}" }
+    },
+    "team-service": {
+      "url": "https://mcp.example.com/mcp",
+      "headers": { "Authorization": "Bearer ${MCP_ACCESS_TOKEN}" }
+    }
+  }
+}
+```
+
+`dbagent mcp list` displays configured servers without starting them; `dbagent mcp test <name>` connects to one and lists its tools. MCP servers are never started automatically. Enable them for a session with `dbagent chat --allow-mcp` or `dbagent ask --allow-mcp`. Only enable servers you trust: their tools can perform external actions, and model-called MCP tools run without a per-call confirmation. Environment placeholders are resolved at runtime; do not store secrets directly in the config.
+
 ## The TUI
 
 `chat` opens a full terminal experience (falls back to a plain REPL when stdin isn't a TTY; `--plain` forces it):
@@ -88,7 +135,7 @@ Use `dbagent db list` to see saved names, `dbagent db use <name>` to switch the 
 | `ctrl+l`                     | Clear screen (session keeps the transcript)                                                                  |
 | `↑` / `↓` / `Tab`            | Navigate and complete slash-command suggestions; outside the menu, arrows browse input history               |
 | `/help [command]`            | List commands or show details for one command                                                                |
-| `/model [name]`              | Show or switch models mid-session, e.g. `/model anthropic/claude-sonnet-4`                                   |
+| `/model [name\|number]`      | List available models or switch mid-session, e.g. `/model 2` or `/model anthropic/claude-sonnet-4`           |
 | `/theme [name]`              | List or switch terminal themes; switching is saved for future sessions                                       |
 | `/schema` · `/refresh`       | Show tables/columns/relationships · reload the live schema after external DDL                                |
 | `/status` · `/cost`          | Show session/database/model state · cumulative tokens and estimated cost                                     |
@@ -178,6 +225,8 @@ A skill directory may hold supporting files next to `SKILL.md` (SQL scripts, ref
 | Tool   | Purpose                                                                                                                 |
 | ------ | ----------------------------------------------------------------------------------------------------------------------- |
 | `bash` | Run shell commands (psql, migration runners, git...) with a hard 30 s timeout (max 120 s), capped output, sandboxed cwd |
+
+**MCP tools** are exposed as `mcp_<server>_<tool>` only when `--allow-mcp` is enabled.
 
 ## Performance analysis
 

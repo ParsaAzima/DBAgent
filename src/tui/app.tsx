@@ -12,13 +12,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Box, Text, useApp, useInput } from 'ink';
 import type { Agent, AgentTurnResult } from '../core/agent.js';
-import type {
-  AgentHooks,
-  AgentTurnEvent,
-  LLMProviderId,
-  TokenUsage,
-  WriteConfirmRequest,
-} from '../core/types.js';
+import type { AgentHooks, AgentTurnEvent, TokenUsage, WriteConfirmRequest } from '../core/types.js';
 import type { DatabaseDriver } from '../core/types.js';
 import { Transcript, LiveTurn, StatusBar } from './components.js';
 import { TableView, pickLatestTable } from './table-viewer.js';
@@ -40,7 +34,7 @@ import {
 export interface TuiProps {
   agent: Agent;
   db: DatabaseDriver;
-  provider: LLMProviderId;
+  provider: string;
   model: string;
   allowWrites: boolean;
   /** Skip the y/n write gate (operator passed --yes). */
@@ -56,6 +50,7 @@ export interface TuiProps {
   /** Restored transcript from a previous session (rendered before anything). */
   initialItems?: TranscriptItem[];
   onModelSwitch?: (model: string) => void;
+  onListModels?: () => Promise<string[]>;
   /** Called with the FULL transcript (incl. tool data + usage) after each turn. */
   onSave?: (items: TranscriptItem[]) => void;
 }
@@ -81,6 +76,7 @@ export function Tui(props: TuiProps): React.ReactElement {
   const [items, setItems] = useState<TranscriptItem[]>(props.initialItems ?? []);
   const [live, setLive] = useState<Live>(IDLE);
   const [model, setModel] = useState(props.model);
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [themeName, setThemeName] = useState<ThemeName>(props.initialTheme ?? DEFAULT_THEME);
   const theme = getTheme(themeName);
   const [totals, setTotals] = useState<UsageInfo>(EMPTY_USAGE);
@@ -351,16 +347,40 @@ export function Tui(props: TuiProps): React.ReactElement {
             return;
           case 'model':
             if (!args) {
-              push({ role: 'info', text: `current model: ${props.provider}/${model}` });
+              try {
+                if (!props.onListModels) {
+                  throw new Error('Model listing is unavailable in this TUI instance.');
+                }
+                const models = await props.onListModels();
+                setAvailableModels(models);
+                push({
+                  role: 'info',
+                  text:
+                    `Available models for ${props.provider}/${model}:\n` +
+                    models
+                      .map(
+                        (entry, index) =>
+                          `  ${index + 1}. ${entry}${entry === model ? ' (current)' : ''}`,
+                      )
+                      .join('\n') +
+                    '\nUse /model <name or number> to switch.',
+                });
+              } catch (err) {
+                push({ role: 'error', text: (err as Error).message });
+              }
               return;
             }
             try {
               if (!props.onModelSwitch) {
                 throw new Error('Model switching is unavailable in this TUI instance.');
               }
-              props.onModelSwitch(args);
-              setModel(args);
-              push({ role: 'info', text: `✓ model → ${args}` });
+              const index = /^\d+$/.test(args) ? Number(args) - 1 : -1;
+              const selected = index >= 0 ? availableModels[index] : args;
+              if (!selected)
+                throw new Error('Model number is out of range. Run /model to list models.');
+              props.onModelSwitch(selected);
+              setModel(selected);
+              push({ role: 'info', text: `✓ model → ${selected}` });
             } catch (err) {
               push({ role: 'error', text: (err as Error).message });
             }
@@ -487,7 +507,7 @@ export function Tui(props: TuiProps): React.ReactElement {
       push({ role: 'user', text: input, ts: Date.now() });
       await runTurn(input);
     },
-    [props, push, runTurn, model, live.busy, exit, totals, theme, themeName],
+    [props, push, runTurn, model, live.busy, exit, totals, theme, themeName, availableModels],
   );
 
   useInput((input, key) => {

@@ -9,7 +9,7 @@
 # instead of writing keys in plain text.
 
 [llm]
-provider = "openrouter" # openai | openrouter | anthropic | gemini | ollama
+provider = "openrouter" # openai | openrouter | anthropic | gemini | ollama | saved custom provider name
 model = "openai/gpt-4o-mini" # "vendor/model" on OpenRouter, e.g. anthropic/claude-sonnet-4
 temperature = 0.1
 max_output_tokens = 2048

@@ -50,10 +50,20 @@ function defaultEmbedModel(provider: string): string {
  * Throws on network/auth errors so the caller can fall back.
  */
 export function defaultEmbedFn(cfg: LLMProviderConfig): EmbedFn | undefined {
-  if (cfg.id !== 'openai' && cfg.id !== 'openrouter' && cfg.id !== 'ollama') {
+  if (
+    cfg.id !== 'openai' &&
+    cfg.id !== 'openrouter' &&
+    cfg.id !== 'ollama' &&
+    cfg.id !== 'custom'
+  ) {
     return undefined;
   }
-  const fallback = cfg.id === 'ollama' ? 'http://localhost:11434' : 'https://api.openai.com';
+  const fallback =
+    cfg.id === 'ollama'
+      ? 'http://localhost:11434'
+      : cfg.id === 'custom'
+        ? (cfg.baseUrl ?? 'http://localhost')
+        : 'https://api.openai.com';
   const base = apiBase(cfg.baseUrl ?? fallback, fallback);
   const model = defaultEmbedModel(cfg.id);
   const headers: Record<string, string> = { 'content-type': 'application/json' };

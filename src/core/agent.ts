@@ -29,6 +29,7 @@ import type { Skill } from './skills.js';
 import type { LLMAdapter } from './types.js';
 import { buildTools } from '../tools/index.js';
 import { buildSystemPrompt } from './prompt.js';
+import type { McpAgentTool } from '../mcp/client.js';
 
 export interface AgentTurnOptions {
   /** Wall-clock budget for the whole turn, in milliseconds. */
@@ -93,6 +94,8 @@ export class Agent {
       hooks?: AgentHooks;
       /** Installed Agent Skills (SKILL.md packages); enables use_skill + prompt section. */
       skills?: Skill[];
+      /** Tools exposed by explicitly enabled MCP servers. */
+      mcpTools?: McpAgentTool[];
     } = {},
   ) {
     this.hooks = opts.hooks ?? {};
@@ -115,6 +118,13 @@ export class Agent {
     });
     this.tools = built.tools;
     this.registry = built.registry;
+    for (const tool of opts.mcpTools ?? []) {
+      if (this.registry.has(tool.spec.name)) {
+        throw new Error(`MCP tool name collides with an existing tool: "${tool.spec.name}".`);
+      }
+      this.tools.push(tool.spec);
+      this.registry.set(tool.spec.name, tool.invoke);
+    }
     this.history = [];
   }
 

@@ -7,7 +7,8 @@
  */
 
 /** Identifier of the LLM backend to use for a session. */
-export type LLMProviderId = 'openai' | 'openrouter' | 'anthropic' | 'gemini' | 'ollama';
+export type BuiltinLLMProviderId = 'openai' | 'openrouter' | 'anthropic' | 'gemini' | 'ollama';
+export type LLMProviderId = BuiltinLLMProviderId | 'custom';
 
 /** JSON-schema-ish description of a tool parameter. */
 export interface ToolParamSpec {
@@ -16,6 +17,8 @@ export interface ToolParamSpec {
   /** JSON-schema-style nested properties (only used when type is 'object'). */
   properties?: Record<string, ToolParamSpec>;
   required?: string[];
+  items?: ToolParamSpec;
+  enum?: Array<string | number | boolean | null>;
 }
 
 /** A tool the agent may call (rendered into each provider's tool format). */
@@ -109,8 +112,12 @@ export interface AgentTurnStreamOptions {
 /** Configuration for one LLM provider. */
 export interface LLMProviderConfig {
   id: LLMProviderId;
+  /** User-defined provider label when id is "custom". */
+  providerName?: string;
   model: string;
   apiKey?: string;
+  apiKeyEnv?: string;
+  apiKeyRequired?: boolean;
   baseUrl?: string;
   temperature?: number;
   maxOutputTokens?: number;

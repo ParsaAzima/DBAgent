@@ -12,20 +12,17 @@ export function createLLMAdapter(cfg: LLMProviderConfig): LLMAdapter {
     case 'openai':
     case 'openrouter':
     case 'ollama':
+    case 'custom':
       return new OpenAICompatibleAdapter(cfg);
     case 'anthropic':
       return new AnthropicAdapter(cfg);
     case 'gemini':
       return new GeminiAdapter(cfg);
-    default: {
-      const exhaustive: never = cfg.id satisfies never;
-      throw new Error(`No LLM adapter for provider "${String(exhaustive)}"`);
-    }
   }
 }
 
 export function assertApiKeyPresent(cfg: LLMProviderConfig): void {
-  if (cfg.id === 'ollama') return; // local server needs no key
+  if (cfg.id === 'ollama' || (cfg.id === 'custom' && !cfg.apiKeyRequired)) return;
   if (!cfg.apiKey) {
     const envVar =
       cfg.id === 'openai'
@@ -34,9 +31,11 @@ export function assertApiKeyPresent(cfg: LLMProviderConfig): void {
           ? 'OPENROUTER_API_KEY'
           : cfg.id === 'anthropic'
             ? 'ANTHROPIC_API_KEY'
-            : 'GEMINI_API_KEY';
+            : cfg.id === 'custom'
+              ? (cfg.apiKeyEnv ?? 'the configured API key environment variable')
+              : 'GEMINI_API_KEY';
     throw new Error(
-      `Provider "${cfg.id}" needs an API key. Set [llm] api_key in dbagent.toml, or ${envVar} in .env/the environment (see dbagent.example.toml).`,
+      `Provider "${cfg.providerName ?? cfg.id}" needs an API key. Set [llm] api_key in dbagent.toml, or ${envVar} in .env/the environment (see dbagent.example.toml).`,
     );
   }
 }

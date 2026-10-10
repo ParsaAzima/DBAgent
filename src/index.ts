@@ -16,9 +16,16 @@
 
 export * from './core/types.js';
 export { Agent, AgentError } from './core/agent.js';
-export { resolveConfig, loadDotEnv, DEFAULT_MODELS } from './core/config.js';
+export { resolveConfig, resolveLLMConfig, loadDotEnv, DEFAULT_MODELS } from './core/config.js';
+export {
+  loadCustomProviders,
+  saveCustomProvider,
+  removeCustomProvider,
+  type CustomProvider,
+} from './core/custom-providers.js';
 export { initFileConfig, findConfigFile, CONFIG_FILE_NAME } from './core/config-file.js';
 export { createLLMAdapter, assertApiKeyPresent } from './llm/factory.js';
+export { listProviderModels } from './llm/models.js';
 export { createDatabaseDriver, parseDatabaseUrl } from './db/factory.js';
 export { buildTools } from './tools/index.js';
 export { loadSkills, parseSkill, findSkillByName, buildSkillPrompt } from './core/skills.js';

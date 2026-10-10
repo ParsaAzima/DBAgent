@@ -17,7 +17,11 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     description: 'Clear the visible transcript without resetting agent context.',
   },
   { name: 'exit', aliases: ['quit'], description: 'Save the session and exit.' },
-  { name: 'model', usage: '[name]', description: 'Show or switch the current provider model.' },
+  {
+    name: 'model',
+    usage: '[name|number]',
+    description: 'List available models or switch the current provider model.',
+  },
   {
     name: 'theme',
     usage: '[name]',

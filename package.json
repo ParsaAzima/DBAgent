@@ -42,13 +42,14 @@
     "test:tui": "tsx scripts/tui-render-check.tsx && tsx scripts/smoke-theme.ts",
     "test:md": "tsx scripts/markdown-render-check.tsx",
     "test:system": "npm run build && node scripts/smoke-system.mjs",
-    "test:config": "npm run build && node scripts/smoke-config.mjs && node scripts/smoke-connections.mjs",
+    "test:config": "npm run build && node scripts/smoke-config.mjs && node scripts/smoke-connections.mjs && tsx scripts/smoke-providers.ts",
+    "test:mcp": "tsx scripts/smoke-mcp.ts",
     "test:skills": "npm run build && node scripts/smoke-skills.mjs",
     "test:fileshell": "npm run build && node scripts/smoke-file-shell.mjs",
     "test:sqlserver": "npm run build && node scripts/smoke-sqlserver.mjs",
     "test:oracle": "npm run build && node scripts/smoke-oracle.mjs",
     "test:perf": "npm run build && node scripts/smoke-perf.mjs",
-    "test": "npm run typecheck && npm run test:smoke && npm run test:e2e && npm run test:stream && npm run test:tui && npm run test:md && npm run test:system && npm run test:config && npm run test:skills && npm run test:fileshell && npm run test:sqlserver && npm run test:oracle && npm run test:perf",
+    "test": "npm run typecheck && npm run test:smoke && npm run test:e2e && npm run test:stream && npm run test:tui && npm run test:md && npm run test:system && npm run test:config && npm run test:mcp && npm run test:skills && npm run test:fileshell && npm run test:sqlserver && npm run test:oracle && npm run test:perf",
     "demo": "npm run build && node scripts/make-demo-sqlite.mjs && node dist/cli.js chat --db sqlite://./demo.db --provider openai"
   },
   "keywords": [
@@ -71,6 +72,7 @@
   "dependencies": {
     "@types/react": "^19.3.0",
     "commander": "^15.0.0",
+    "@modelcontextprotocol/sdk": "^1.25.2",
     "ink": "^7.1.1",
     "ink-text-input": "^6.0.0",
     "marked": "^18.0.14",
