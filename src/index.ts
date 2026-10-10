@@ -17,6 +17,7 @@
 export * from './core/types.js';
 export { Agent, AgentError } from './core/agent.js';
 export { resolveConfig, loadDotEnv, DEFAULT_MODELS } from './core/config.js';
+export { initFileConfig, findConfigFile, CONFIG_FILE_NAME } from './core/config-file.js';
 export { createLLMAdapter, assertApiKeyPresent } from './llm/factory.js';
 export { createDatabaseDriver, parseDatabaseUrl } from './db/factory.js';
 export { buildTools } from './tools/index.js';

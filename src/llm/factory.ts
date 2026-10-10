@@ -36,7 +36,7 @@ export function assertApiKeyPresent(cfg: LLMProviderConfig): void {
             ? 'ANTHROPIC_API_KEY'
             : 'GEMINI_API_KEY';
     throw new Error(
-      `Provider "${cfg.id}" needs an API key. Set ${envVar} in .env or the environment (see .env.example).`,
+      `Provider "${cfg.id}" needs an API key. Set [llm] api_key in dbagent.toml, or ${envVar} in .env/the environment (see dbagent.example.toml).`,
     );
   }
 }

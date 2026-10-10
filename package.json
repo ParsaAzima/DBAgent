@@ -42,10 +42,11 @@
     "test:tui": "tsx scripts/tui-render-check.tsx",
     "test:md": "tsx scripts/markdown-render-check.tsx",
     "test:system": "npm run build && node scripts/smoke-system.mjs",
+    "test:config": "npm run build && node scripts/smoke-config.mjs",
     "test:fileshell": "npm run build && node scripts/smoke-file-shell.mjs",
     "test:sqlserver": "npm run build && node scripts/smoke-sqlserver.mjs",
     "test:perf": "npm run build && node scripts/smoke-perf.mjs",
-    "test": "npm run typecheck && npm run test:smoke && npm run test:e2e && npm run test:stream && npm run test:tui && npm run test:md && npm run test:system && npm run test:fileshell && npm run test:sqlserver && npm run test:perf",
+    "test": "npm run typecheck && npm run test:smoke && npm run test:e2e && npm run test:stream && npm run test:tui && npm run test:md && npm run test:system && npm run test:config && npm run test:fileshell && npm run test:sqlserver && npm run test:perf",
     "demo": "npm run build && node scripts/make-demo-sqlite.mjs && node dist/cli.js chat --db sqlite://./demo.db --provider openai"
   },
   "keywords": [
@@ -72,7 +73,8 @@
     "mssql": "^12.7.4",
     "mysql2": "^3.11.0",
     "pg": "^8.13.0",
-    "react": "^19.3.0"
+    "react": "^19.3.0",
+    "smol-toml": "^1.9.1"
   },
   "optionalDependencies": {
     "better-sqlite3": "^11.3.0"

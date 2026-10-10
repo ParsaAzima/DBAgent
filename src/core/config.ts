@@ -119,32 +119,36 @@ export function resolveConfig(opts: {
 }
 
 function apiKeyFor(provider: LLMProviderId): string | undefined {
+  // Provider-specific vars win; DBAGENT_API_KEY is the generic fallback
+  // (set by dbagent.toml [llm] api_key, or directly in the environment).
+  const generic = process.env.DBAGENT_API_KEY;
   switch (provider) {
     case 'openai':
-      return process.env.OPENAI_API_KEY;
+      return process.env.OPENAI_API_KEY ?? generic;
     case 'openrouter':
-      return process.env.OPENROUTER_API_KEY;
+      return process.env.OPENROUTER_API_KEY ?? generic;
     case 'anthropic':
-      return process.env.ANTHROPIC_API_KEY;
+      return process.env.ANTHROPIC_API_KEY ?? generic;
     case 'gemini':
-      return process.env.GEMINI_API_KEY;
+      return process.env.GEMINI_API_KEY ?? generic;
     case 'ollama':
       return undefined; // local, no key
   }
 }
 
 function baseUrlFor(provider: LLMProviderId): string | undefined {
+  const generic = process.env.DBAGENT_BASE_URL;
   switch (provider) {
     case 'openai':
-      return process.env.OPENAI_BASE_URL;
+      return process.env.OPENAI_BASE_URL ?? generic;
     case 'openrouter':
-      return process.env.OPENROUTER_BASE_URL ?? 'https://openrouter.ai/api';
+      return process.env.OPENROUTER_BASE_URL ?? generic ?? 'https://openrouter.ai/api';
     case 'anthropic':
-      return process.env.ANTHROPIC_BASE_URL;
+      return process.env.ANTHROPIC_BASE_URL ?? generic;
     case 'gemini':
       return undefined; // uses per-request version path
     case 'ollama':
-      return process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434';
+      return process.env.OLLAMA_BASE_URL ?? generic ?? 'http://localhost:11434';
   }
 }
 

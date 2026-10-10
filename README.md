@@ -44,7 +44,7 @@ From source:
 git clone https://github.com/ParsaAzima/DBAgent.git && cd DBAgent
 npm install
 npm run build
-cp .env.example .env    # add at least one provider API key
+cp dbagent.example.toml dbagent.toml   # provider + database settings (or cp .env.example .env)
 ```
 
 ## Quick start
@@ -168,27 +168,41 @@ When `--allow-system` is on, exports and backups always land inside the working 
 
 ## Configuration
 
-Provider keys go in `.env` (see [.env.example](.env.example)). Any one provider is enough.
+All settings live in one TOML file — copy [dbagent.example.toml](dbagent.example.toml) to `dbagent.toml`:
 
-| Variable                                                                | Purpose                                                                                              |
-| ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `OPENAI_API_KEY` / `OPENAI_BASE_URL`                                    | OpenAI or any compatible gateway                                                                     |
-| `OPENROUTER_API_KEY`                                                    | OpenRouter — models as `vendor/model`                                                                |
-| `ANTHROPIC_API_KEY`                                                     | Claude                                                                                               |
-| `GEMINI_API_KEY`                                                        | Gemini                                                                                               |
-| `OLLAMA_BASE_URL`                                                       | defaults to `http://localhost:11434`                                                                 |
-| `DBAGENT_PROVIDER` / `DBAGENT_MODEL`                                    | defaults, overridable by CLI flags                                                                   |
-| `DBAGENT_DB_URL`                                                        | default database                                                                                     |
-| `DBAGENT_ALLOW_WRITES` / `DBAGENT_ALLOW_SYSTEM` / `DBAGENT_ALLOW_SHELL` | permission tiers                                                                                     |
-| `DBAGENT_ASSUME_YES`                                                    | auto-confirm writes (`--yes`), default off                                                           |
-| `DBAGENT_ALLOW_DDL`                                                     | `off` / `dry-run` / `on` (`--allow-ddl`), default `off`                                              |
-| `DBAGENT_MASK_PII`                                                      | `0` disables PII masking (`--no-mask-pii`), default on                                               |
-| `DBAGENT_EMBED_MODEL`                                                   | embedding model for `search_tables` (default `text-embedding-3-small`, `nomic-embed-text` on Ollama) |
-| `DBAGENT_LARGE_SCHEMA_TABLES`                                           | table count that switches the prompt to search-first navigation (default `30`)                       |
-| `DBAGENT_AUDIT_FILE`                                                    | audit log path (default `~/.dbagent/audit.log`)                                                      |
-| `DBAGENT_MAX_ROWS` / `DBAGENT_MAX_ROUNDS` / `DBAGENT_TIMEOUT_MS`        | guardrail tuning                                                                                     |
-| `DBAGENT_OUT_DIR`                                                       | export/backup output directory                                                                       |
-| `DBAGENT_TEMPERATURE` / `DBAGENT_MAX_OUTPUT_TOKENS`                     | model sampling                                                                                       |
+```toml
+[llm]
+provider = "openrouter"
+model = "openai/gpt-4o-mini"
+api_key = "${OPENROUTER_API_KEY}"   # ${VAR} / ${VAR:-fallback} read from the environment
+
+[database]
+url = "sqlite://./app.db"
+
+[safety]
+allow_writes = false
+allow_ddl = "off"    # off | dry-run | on
+```
+
+Lookup order for the file: `--config <path>` → `$DBAGENT_CONFIG` → `./dbagent.toml` → `~/.dbagent/config.toml`. Unknown keys/sections and mistyped values fail fast with a _did-you-mean_ hint. Every setting resolves as **CLI flags > environment variables (`.env` still works) > `dbagent.toml` > defaults**, so existing env-based setups are unaffected. `dbagent.toml` is gitignored; prefer `${VAR}` interpolation for API keys instead of plain text.
+
+| TOML key                                          | Env equivalent                    | Purpose                                                          |
+| ------------------------------------------------- | --------------------------------- | ---------------------------------------------------------------- |
+| `[llm] provider` / `model`                        | `DBAGENT_PROVIDER` / `_MODEL`     | active provider and model, overridable by `--provider`/`--model` |
+| `[llm] api_key` / `base_url`                      | `DBAGENT_API_KEY` / `_BASE_URL`   | generic key/base URL for the active provider                     |
+| `[llm] openrouter` / `[llm] gemini`               | `OPENROUTER_*` / `GEMINI_*`       | provider-specific extras (attribution headers, api version)      |
+| `[database] url`                                  | `DBAGENT_DB_URL`                  | default database, overridable by `--db`                          |
+| `[safety] allow_writes/system/shell`              | `DBAGENT_ALLOW_*`                 | permission tiers                                                 |
+| `[safety] assume_yes`                             | `DBAGENT_ASSUME_YES`              | auto-confirm writes (`--yes`), default off                       |
+| `[safety] allow_ddl`                              | `DBAGENT_ALLOW_DDL`               | `off` / `dry-run` / `on` (`--allow-ddl`), default `off`          |
+| `[safety] mask_pii`                               | `DBAGENT_MASK_PII`                | `false` disables PII masking (`--no-mask-pii`), default on       |
+| `[schema] embed_model`                            | `DBAGENT_EMBED_MODEL`             | embedding model for `search_tables`                              |
+| `[schema] large_tables`                           | `DBAGENT_LARGE_SCHEMA_TABLES`     | search-first navigation threshold (default `30`)                 |
+| `[limits] max_rows` / `max_rounds` / `timeout_ms` | `DBAGENT_MAX_*` / `_TIMEOUT_MS`   | guardrail tuning                                                 |
+| `[output] dir` / `audit_file`                     | `DBAGENT_OUT_DIR` / `_AUDIT_FILE` | export/backup directory and audit log                            |
+| `[output] allow_any_path`                         | `DBAGENT_ANY_PATH`                | escaping the path sandbox (dangerous)                            |
+
+Provider key variables (`OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `OLLAMA_BASE_URL`) still work directly — any one provider is enough.
 
 ## Library usage
 

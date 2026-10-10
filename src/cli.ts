@@ -15,6 +15,7 @@ import { Agent } from './core/agent.js';
 import type { AgentHooks } from './core/types.js';
 import { createAuditSink } from './system/audit.js';
 import { loadDotEnv, resolveConfig, PROVIDER_IDS } from './core/config.js';
+import { initFileConfig } from './core/config-file.js';
 import { assertApiKeyPresent, createLLMAdapter } from './llm/factory.js';
 import { createDatabaseDriver } from './db/factory.js';
 import { randomUUID } from 'node:crypto';
@@ -91,11 +92,14 @@ program
   .option('--allow-shell', 'Enable the bash tool (runs shell commands) — use with care', false)
   .option('--max-rows <n>', 'Hard LIMIT for read queries', parseInt)
   .option('--resume [id]', 'Resume a saved session (latest if no id given)')
+  .option('--config <path>', 'TOML config file (default: ./dbagent.toml, ~/.dbagent/config.toml)')
   .option('--plain', 'Use the legacy line-based REPL instead of the TUI', false)
   .action(async (opts) => {
     loadDotEnv();
     let cfg;
+    let configPath: string | undefined;
     try {
+      configPath = initFileConfig(opts.config);
       cfg = resolveConfig({
         providerFlag: opts.provider,
         modelFlag: opts.model,
@@ -222,6 +226,7 @@ program
     console.log(`DBAgent v${CLI_VERSION} (plain REPL)`);
     console.log(`  DB      : ${db.describeTarget()}  (${redactDbUrl(cfg.dbUrl)})`);
     console.log(`  Model   : ${cfg.llm.id}/${cfg.llm.model}`);
+    if (configPath) console.log(`  Config  : ${configPath}`);
     console.log(
       `  Mode    : ${cfg.allowWrites ? 'READ+WRITE' : 'READ-ONLY'} (max ${cfg.maxRows ?? 100} rows)`,
     );
@@ -359,10 +364,12 @@ program
   .option('--no-mask-pii', 'Disable PII masking in results (shows exact values)')
   .option('--yes', 'Auto-confirm write prompts (dangerous: no y/n gate)', false)
   .option('--max-rows <n>', 'Hard LIMIT for read queries', parseInt)
+  .option('--config <path>', 'TOML config file (default: ./dbagent.toml, ~/.dbagent/config.toml)')
   .action(async (question, opts) => {
     loadDotEnv();
     let cfg;
     try {
+      initFileConfig(opts.config);
       cfg = resolveConfig({
         providerFlag: opts.provider,
         modelFlag: opts.model,
@@ -411,8 +418,15 @@ program
 program
   .command('discover')
   .description('Scan this machine for usable databases (servers, sqlite files, client tools).')
-  .action(async () => {
+  .option('--config <path>', 'TOML config file (default: ./dbagent.toml, ~/.dbagent/config.toml)')
+  .action(async (opts) => {
     loadDotEnv();
+    try {
+      initFileConfig(opts.config);
+    } catch (err) {
+      console.error(`✗ ${(err as Error).message}`);
+      process.exit(1);
+    }
     const { discoverLocalDatabases } = await import('./system/discover.js');
     const d = await discoverLocalDatabases();
     console.log('Servers:');
@@ -441,8 +455,15 @@ program
   .command('health')
   .description('Check DB connectivity and list tables (no LLM needed).')
   .option('--db <url>', 'Database URL')
+  .option('--config <path>', 'TOML config file (default: ./dbagent.toml, ~/.dbagent/config.toml)')
   .action(async (opts) => {
     loadDotEnv();
+    try {
+      initFileConfig(opts.config);
+    } catch (err) {
+      console.error(`✗ ${(err as Error).message}`);
+      process.exit(1);
+    }
     const dbUrl = opts.db ?? process.env.DBAGENT_DB_URL;
     if (!dbUrl) {
       console.error('✗ No database URL. Use --db or DBAGENT_DB_URL.');
