@@ -42,7 +42,7 @@
     "test:tui": "tsx scripts/tui-render-check.tsx",
     "test:md": "tsx scripts/markdown-render-check.tsx",
     "test:system": "npm run build && node scripts/smoke-system.mjs",
-    "test:config": "npm run build && node scripts/smoke-config.mjs",
+    "test:config": "npm run build && node scripts/smoke-config.mjs && node scripts/smoke-connections.mjs",
     "test:skills": "npm run build && node scripts/smoke-skills.mjs",
     "test:fileshell": "npm run build && node scripts/smoke-file-shell.mjs",
     "test:sqlserver": "npm run build && node scripts/smoke-sqlserver.mjs",

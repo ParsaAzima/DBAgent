@@ -20,6 +20,13 @@ import { assertApiKeyPresent, createLLMAdapter } from './llm/factory.js';
 import { createDatabaseDriver } from './db/factory.js';
 import { randomUUID } from 'node:crypto';
 import {
+  loadConnections,
+  removeConnection,
+  saveConnection,
+  selectedConnectionUrl,
+  setDefaultConnection,
+} from './core/connections.js';
+import {
   deleteSession,
   listSessions,
   loadSession,
@@ -72,10 +79,7 @@ program
 program
   .command('chat')
   .description('Interactive chat with your database (TUI; --plain for simple REPL).')
-  .option(
-    '--db <url>',
-    'Database URL (sqlite://./app.db, postgres://..., mysql://..., sqlserver://...)',
-  )
+  .option('--db <url>', 'Database URL or saved connection name (manage with "dbagent db")')
   .option('--provider <id>', `LLM provider (${PROVIDER_IDS.join('|')})`)
   .option('--model <name>', 'Model name override')
   .option('--allow-writes', 'Enable INSERT/UPDATE/DELETE (read-only by default)', false)
@@ -101,10 +105,11 @@ program
     let configPath: string | undefined;
     try {
       configPath = initFileConfig(opts.config);
+      const dbUrl = selectedConnectionUrl(opts.db, process.env.DBAGENT_DB_URL);
       cfg = resolveConfig({
         providerFlag: opts.provider,
         modelFlag: opts.model,
-        dbUrlFlag: opts.db,
+        dbUrlFlag: dbUrl,
         allowWritesFlag: opts.allowWrites,
         allowSystemFlag: opts.allowSystem,
         allowShellFlag: opts.allowShell,
@@ -378,7 +383,7 @@ program
   .command('ask')
   .description('One-shot question about the database.')
   .argument('<question>', 'Your question in natural language')
-  .option('--db <url>', 'Database URL')
+  .option('--db <url>', 'Database URL or saved connection name')
   .option('--provider <id>', `LLM provider (${PROVIDER_IDS.join('|')})`)
   .option('--model <name>', 'Model name override')
   .option('--allow-writes', 'Enable writes (discouraged for one-shots)', false)
@@ -393,10 +398,11 @@ program
     let cfg;
     try {
       initFileConfig(opts.config);
+      const dbUrl = selectedConnectionUrl(opts.db, process.env.DBAGENT_DB_URL);
       cfg = resolveConfig({
         providerFlag: opts.provider,
         modelFlag: opts.model,
-        dbUrlFlag: opts.db,
+        dbUrlFlag: dbUrl,
         allowWritesFlag: opts.allowWrites,
         allowSystemFlag: opts.allowSystem,
         assumeYesFlag: opts.yes,
@@ -478,7 +484,7 @@ program
 program
   .command('health')
   .description('Check DB connectivity and list tables (no LLM needed).')
-  .option('--db <url>', 'Database URL')
+  .option('--db <url>', 'Database URL or saved connection name')
   .option('--config <path>', 'TOML config file (default: ./dbagent.toml, ~/.dbagent/config.toml)')
   .action(async (opts) => {
     loadDotEnv();
@@ -488,7 +494,13 @@ program
       console.error(`✗ ${(err as Error).message}`);
       process.exit(1);
     }
-    const dbUrl = opts.db ?? process.env.DBAGENT_DB_URL;
+    let dbUrl: string | undefined;
+    try {
+      dbUrl = selectedConnectionUrl(opts.db, process.env.DBAGENT_DB_URL);
+    } catch (err) {
+      console.error(`✗ ${(err as Error).message}`);
+      process.exit(1);
+    }
     if (!dbUrl) {
       console.error('✗ No database URL. Use --db or DBAGENT_DB_URL.');
       process.exit(1);
@@ -523,6 +535,68 @@ program
     for (const s of skills) {
       console.log(`- ${s.name} [${s.source}] — ${s.description}`);
       console.log(`    ${s.path}`);
+    }
+  });
+
+const dbCmd = program.command('db').description('Manage saved database connections.');
+dbCmd
+  .command('add')
+  .description('Save a database URL under a short name.')
+  .argument('<name>', 'Connection name')
+  .argument('<url>', 'Database URL')
+  .option('--default', 'Use this connection by default')
+  .action((name: string, url: string, opts: { default?: boolean }) => {
+    try {
+      saveConnection(name, url, opts.default);
+      console.log(`✓ Saved database connection "${name}"${opts.default ? ' as default' : ''}.`);
+    } catch (err) {
+      console.error(`✗ ${(err as Error).message}`);
+      process.exitCode = 1;
+    }
+  });
+dbCmd
+  .command('list')
+  .description('List saved database connections.')
+  .action(() => {
+    try {
+      const config = loadConnections();
+      const names = Object.keys(config.connections);
+      if (names.length === 0) return console.log('(no saved database connections)');
+      for (const name of names) {
+        console.log(`${name}${config.default === name ? ' (default)' : ''}`);
+      }
+    } catch (err) {
+      console.error(`✗ ${(err as Error).message}`);
+      process.exitCode = 1;
+    }
+  });
+dbCmd
+  .command('use')
+  .description('Set a saved connection as the default for chat, ask, and health.')
+  .argument('<name>', 'Saved connection name')
+  .action((name: string) => {
+    try {
+      setDefaultConnection(name);
+      console.log(`✓ Default database connection: "${name}".`);
+    } catch (err) {
+      console.error(`✗ ${(err as Error).message}`);
+      process.exitCode = 1;
+    }
+  });
+dbCmd
+  .command('remove')
+  .description('Remove a saved database connection.')
+  .argument('<name>', 'Saved connection name')
+  .action((name: string) => {
+    try {
+      console.log(
+        removeConnection(name)
+          ? `✓ Removed database connection "${name}".`
+          : `✗ Saved database connection not found: ${name}`,
+      );
+    } catch (err) {
+      console.error(`✗ ${(err as Error).message}`);
+      process.exitCode = 1;
     }
   });
 

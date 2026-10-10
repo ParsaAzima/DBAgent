@@ -60,6 +60,19 @@ node dist/cli.js chat --db sqlite://./demo.db --provider openrouter
 
 Ask things like _"Which product sold the most last month?"_ or _"Export the customers table and tell me the DB size"_ — the agent explores the schema, writes and runs SQL, and answers with rendered tables.
 
+### Save database connections
+
+Save each database once under a short name. Connections are stored in your user profile (`~/.dbagent/connections.json`) and used by default for `chat`, `ask`, and `health`:
+
+```bash
+dbagent db add analytics "postgres://user:password@localhost:5432/analytics"
+dbagent db add local "sqlite://./app.db"
+dbagent db use analytics
+dbagent chat --provider openrouter
+```
+
+Use `dbagent db list` to see saved names, `dbagent db use <name>` to switch the default, or pass `--db <name>` for a one-off connection. `dbagent db remove <name>` deletes a saved connection. The existing `--db <url>`, `DBAGENT_DB_URL`, and `[database] url` options continue to work; explicit `--db` and `DBAGENT_DB_URL` take precedence over the saved default. Connection storage is restricted to the current user where the operating system supports file permissions.
+
 ## The TUI
 
 `chat` opens a full terminal experience (falls back to a plain REPL when stdin isn't a TTY; `--plain` forces it):
