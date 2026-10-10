@@ -11,6 +11,7 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import { marked, type Tokens } from 'marked';
+import { DEFAULT_THEME, THEMES, type TuiTheme } from './theme.js';
 
 const MAX_TABLE_COLS = 8;
 const MAX_TABLE_WIDTH = 100;
@@ -59,16 +60,16 @@ function parseInline(text: string): Span[] {
   return spans;
 }
 
-function Inline({ text }: { text: string }): React.ReactElement {
+function Inline({ text, theme }: { text: string; theme: TuiTheme }): React.ReactElement {
   const spans = parseInline(text);
   return (
     <Text>
       {spans.map((s, i) => {
         if (s.link) {
           return (
-            <Text key={i} color="cyan" underline>
+            <Text key={i} color={theme.info} underline>
               {s.text}
-              {s.link !== s.text ? <Text dimColor> ({s.link})</Text> : null}
+              {s.link !== s.text ? <Text color={theme.muted}> ({s.link})</Text> : null}
             </Text>
           );
         }
@@ -78,7 +79,7 @@ function Inline({ text }: { text: string }): React.ReactElement {
             bold={s.bold}
             italic={s.italic}
             strikethrough={s.strike}
-            color={s.code ? 'green' : undefined}
+            color={s.code ? theme.code : theme.foreground}
           >
             {s.text}
           </Text>
@@ -90,14 +91,14 @@ function Inline({ text }: { text: string }): React.ReactElement {
 
 /* ─────────────────── table ─────────────────── */
 
-function renderTable(tok: Tokens.Table, key: string): React.ReactElement {
+function renderTable(tok: Tokens.Table, key: string, theme: TuiTheme): React.ReactElement {
   const headers: string[] = tok.header.map((c) => c.text ?? '');
   const rows: string[][] = tok.rows.map((r) => r.map((c) => c.text ?? ''));
   const tooWide = headers.length > MAX_TABLE_COLS;
 
   if (tooWide) {
     return (
-      <Text key={key} dimColor>
+      <Text key={key} color={theme.muted}>
         (table with {headers.length} columns — {MAX_TABLE_COLS} max; data shown in results above)
       </Text>
     );
@@ -111,7 +112,7 @@ function renderTable(tok: Tokens.Table, key: string): React.ReactElement {
   const total = widths.reduce((a, b) => a + b + 3, 0);
   if (total > MAX_TABLE_WIDTH) {
     return (
-      <Text key={key} dimColor>
+      <Text key={key} color={theme.muted}>
         (wide table omitted — inspect with ctrl+o or ask for specific columns)
       </Text>
     );
@@ -124,26 +125,26 @@ function renderTable(tok: Tokens.Table, key: string): React.ReactElement {
 
   return (
     <Box key={key} flexDirection="column" marginY={0}>
-      <Text color="cyan">{line('┌', '┬', '┐')}</Text>
-      <Text color="cyan" bold>
+      <Text color={theme.table}>{line('┌', '┬', '┐')}</Text>
+      <Text color={theme.table} bold>
         {drawRow(headers)}
       </Text>
-      <Text color="cyan">{line('├', '┼', '┤')}</Text>
+      <Text color={theme.table}>{line('├', '┼', '┤')}</Text>
       {rows.map((r, i) => (
         <Text key={i}>{drawRow(headers.map((_, ci) => r[ci] ?? ''))}</Text>
       ))}
-      <Text color="cyan">{line('└', '┴', '┘')}</Text>
+      <Text color={theme.table}>{line('└', '┴', '┘')}</Text>
     </Box>
   );
 }
 
 /* ─────────────────── code block ─────────────────── */
 
-function renderCode(code: string, key: string): React.ReactElement {
+function renderCode(code: string, key: string, theme: TuiTheme): React.ReactElement {
   return (
     <Box key={key} flexDirection="column" marginY={0}>
       {code.split('\n').map((l, j) => (
-        <Text key={j} color="yellow" wrap="truncate">
+        <Text key={j} color={theme.code} wrap="truncate">
           │ {l}
         </Text>
       ))}
@@ -173,17 +174,17 @@ function flattenList(tok: Tokens.List, depth = 0, out: ListItem[] = []): ListIte
   return out;
 }
 
-function renderList(tok: Tokens.List, key: string): React.ReactElement {
+function renderList(tok: Tokens.List, key: string, theme: TuiTheme): React.ReactElement {
   const items = flattenList(tok);
   return (
     <Box key={key} flexDirection="column" marginY={0}>
       {items.map((it, j) => (
         <Box key={j} paddingLeft={it.depth * 2}>
           <Text>
-            <Text color="magenta">
+            <Text color={theme.accentSecondary}>
               {it.ordered ? `${it.index}. ` : it.depth % 2 === 0 ? '- ' : '* '}
             </Text>
-            <Inline text={it.text} />
+            <Inline text={it.text} theme={theme} />
           </Text>
         </Box>
       ))}
@@ -193,7 +194,13 @@ function renderList(tok: Tokens.List, key: string): React.ReactElement {
 
 /* ─────────────────── block renderer ─────────────────── */
 
-function Markdown({ children }: { children: string }): React.ReactElement {
+function Markdown({
+  children,
+  theme = THEMES[DEFAULT_THEME],
+}: {
+  children: string;
+  theme?: TuiTheme;
+}): React.ReactElement {
   const tokens = marked.lexer(children, { gfm: true });
   const out: React.ReactElement[] = [];
 
@@ -202,27 +209,27 @@ function Markdown({ children }: { children: string }): React.ReactElement {
     switch (tok.type) {
       case 'heading':
         out.push(
-          <Text key={key} bold color="cyan">
+          <Text key={key} bold color={theme.accent}>
             {(tok as Tokens.Heading).text}
           </Text>,
         );
         break;
       case 'code':
-        out.push(renderCode((tok as Tokens.Code).text, key));
+        out.push(renderCode((tok as Tokens.Code).text, key, theme));
         break;
       case 'table':
-        out.push(renderTable(tok as Tokens.Table, key));
+        out.push(renderTable(tok as Tokens.Table, key, theme));
         break;
       case 'list':
-        out.push(renderList(tok as Tokens.List, key));
+        out.push(renderList(tok as Tokens.List, key, theme));
         break;
       case 'blockquote': {
         const text = (tok as Tokens.Blockquote).text ?? '';
         out.push(
           <Box key={key} paddingLeft={1}>
-            <Text color="gray" italic>
+            <Text color={theme.muted} italic>
               {'▏ '}
-              <Inline text={text} />
+              <Inline text={text} theme={theme} />
             </Text>
           </Box>,
         );
@@ -230,7 +237,7 @@ function Markdown({ children }: { children: string }): React.ReactElement {
       }
       case 'hr':
         out.push(
-          <Text key={key} dimColor>
+          <Text key={key} color={theme.muted}>
             {'─'.repeat(46)}
           </Text>,
         );
@@ -241,13 +248,17 @@ function Markdown({ children }: { children: string }): React.ReactElement {
       case 'html':
         // strip raw html tags, keep inner text
         out.push(
-          <Inline key={key} text={(tok as Tokens.HTML).raw.replace(/<[^>]+>/g, '').trim()} />,
+          <Inline
+            key={key}
+            text={(tok as Tokens.HTML).raw.replace(/<[^>]+>/g, '').trim()}
+            theme={theme}
+          />,
         );
         break;
       case 'paragraph':
       default: {
         const raw = (tok as Tokens.Paragraph).text ?? (tok as { raw?: string }).raw ?? '';
-        if (raw.trim()) out.push(<Inline key={key} text={raw} />);
+        if (raw.trim()) out.push(<Inline key={key} text={raw} theme={theme} />);
         break;
       }
     }

@@ -106,6 +106,7 @@ stdin.ref = () => stdin;
 stdin.unref = () => stdin;
 
 const hooks: AgentHooks = {};
+let selectedTheme = '';
 
 const { unmount, waitUntilExit } = render(
   <Tui
@@ -119,6 +120,10 @@ const { unmount, waitUntilExit } = render(
     maxRows={100}
     sessionLabel="tui-check"
     skills={testSkills}
+    initialTheme="catppuccin-latte"
+    onThemeSwitch={(name) => {
+      selectedTheme = name;
+    }}
     onSave={() => {}}
   />,
   // interactive: frames are flushed on every render (non-interactive Ink only
@@ -244,6 +249,21 @@ check(
   delta.includes('Installed skills') && delta.includes('/test-skill —'),
   JSON.stringify(delta.slice(-400)),
 );
+
+// ── /theme lists choices and switches the active theme ──
+mark = snapshot().length;
+await type('/theme');
+await feed('\r', 300);
+delta = deltaSince(mark);
+check(
+  'theme command lists all themes',
+  delta.includes('catppuccin-mocha') && delta.includes('github-light'),
+);
+await type('/theme dracula');
+await feed('\r', 300);
+delta = deltaSince(mark);
+check('theme command persists selected theme', selectedTheme === 'dracula', selectedTheme);
+check('theme command confirms selected theme', delta.includes('Theme changed to dracula'));
 
 unmount();
 await waitUntilExit();

@@ -18,6 +18,11 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   },
   { name: 'exit', aliases: ['quit'], description: 'Save the session and exit.' },
   { name: 'model', usage: '[name]', description: 'Show or switch the current provider model.' },
+  {
+    name: 'theme',
+    usage: '[name]',
+    description: 'Show, list, or switch the terminal color theme.',
+  },
   { name: 'schema', description: 'List database tables, columns, and relationships.' },
   { name: 'refresh', description: 'Refresh the database schema after external changes.' },
   { name: 'save', description: 'Save the current session transcript.' },

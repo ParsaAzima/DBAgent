@@ -11,6 +11,7 @@ import { Box, Text } from 'ink';
 import Markdown from './markdown.js';
 import type { TranscriptItem, ToolRun, TurnUsage, UsageInfo } from './foundation.js';
 import { fmtTokens, fmtCost, fmtDuration, fmtTime } from './foundation.js';
+import type { TuiTheme } from './theme.js';
 
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
@@ -34,10 +35,16 @@ export function Spinner({
   );
 }
 
-function StatusIcon({ status }: { status: ToolRun['status'] }): React.ReactElement {
-  if (status === 'running') return <Spinner label="" />;
-  if (status === 'error') return <Text color="red">✗</Text>;
-  return <Text color="green">✓</Text>;
+function StatusIcon({
+  status,
+  theme,
+}: {
+  status: ToolRun['status'];
+  theme: TuiTheme;
+}): React.ReactElement {
+  if (status === 'running') return <Spinner label="" color={theme.accent} />;
+  if (status === 'error') return <Text color={theme.error}>✗</Text>;
+  return <Text color={theme.success}>✓</Text>;
 }
 
 /**
@@ -48,33 +55,35 @@ export function ToolBlock({
   run,
   expanded,
   onToggle,
+  theme,
 }: {
   run: ToolRun;
   expanded: boolean;
   onToggle?: () => void;
+  theme: TuiTheme;
 }): React.ReactElement {
   const running = run.status === 'running';
-  const headerColor = running ? 'cyan' : run.status === 'error' ? 'red' : 'gray';
+  const headerColor = running ? theme.accent : run.status === 'error' ? theme.error : theme.muted;
   const title = run.argsSummary ? `${run.name} ${run.argsSummary}` : run.name;
   return (
     <Box flexDirection="column" marginBottom={0}>
-      <Text color={headerColor} dimColor={!running}>
+      <Text color={headerColor}>
         {'  '}
         {run.status === 'running' ? (
-          <Spinner label={title} />
+          <Spinner label={title} color={theme.accent} />
         ) : (
           <>
-            <StatusIcon status={run.status} /> {title}
+            <StatusIcon status={run.status} theme={theme} /> {title}
             {run.durationMs !== undefined ? (
-              <Text dimColor> ({fmtDuration(run.durationMs)})</Text>
+              <Text color={theme.muted}> ({fmtDuration(run.durationMs)})</Text>
             ) : null}
-            {run.preview ? <Text dimColor> — {run.preview}</Text> : null}
+            {run.preview ? <Text color={theme.muted}> — {run.preview}</Text> : null}
           </>
         )}
       </Text>
       {expanded && run.argsSummary && run.argsSummary.length > 0 && (
         <Box marginLeft={5} flexDirection="column">
-          <Text color="yellow">
+          <Text color={theme.warning}>
             {run.name === 'query' || run.name === 'execute'
               ? run.argsSummary
               : `→ ${run.argsSummary}`}
@@ -83,7 +92,9 @@ export function ToolBlock({
       )}
       {expanded && run.data && run.data.rows.length > 0 && (
         <Box marginLeft={5} flexDirection="column">
-          <Text dimColor>ctrl+o to open interactive viewer ({run.data.rowCount} rows)</Text>
+          <Text color={theme.muted}>
+            ctrl+o to open interactive viewer ({run.data.rowCount} rows)
+          </Text>
         </Box>
       )}
       {onToggle ? null : null}
@@ -91,11 +102,17 @@ export function ToolBlock({
   );
 }
 
-function TurnBadge({ turn }: { turn?: TurnUsage }): React.ReactElement | null {
+function TurnBadge({
+  turn,
+  theme,
+}: {
+  turn?: TurnUsage;
+  theme: TuiTheme;
+}): React.ReactElement | null {
   if (!turn) return null;
   const { usage } = turn;
   return (
-    <Text dimColor>
+    <Text color={theme.muted}>
       {'   '}
       {turn.rounds} round{turn.rounds === 1 ? '' : 's'} · {fmtDuration(turn.durationMs)} ·{' '}
       {fmtTokens(usage.inputTokens)} in / {fmtTokens(usage.outputTokens)} out
@@ -107,34 +124,34 @@ function TurnBadge({ turn }: { turn?: TurnUsage }): React.ReactElement | null {
 export function TranscriptEntry({
   item,
   expanded = false,
+  theme,
 }: {
   item: TranscriptItem;
   expanded?: boolean;
+  theme: TuiTheme;
 }): React.ReactElement {
   if (item.role === 'user') {
     return (
       <Box marginTop={1} flexDirection="column">
         <Box>
-          <Text color="blue" bold>
+          <Text color={theme.user} bold>
             ❯{' '}
           </Text>
-          <Text bold>{item.text}</Text>
-          <Text dimColor> {fmtTime(item.ts)}</Text>
+          <Text color={theme.foreground} bold>
+            {item.text}
+          </Text>
+          <Text color={theme.muted}> {fmtTime(item.ts)}</Text>
         </Box>
       </Box>
     );
   }
   if (item.role === 'info') {
-    return (
-      <Text color="gray" dimColor>
-        {item.text}
-      </Text>
-    );
+    return <Text color={theme.muted}>{item.text}</Text>;
   }
   if (item.role === 'error') {
     return (
       <Box marginTop={1} flexDirection="column">
-        <Text color="red">✗ {item.text}</Text>
+        <Text color={theme.error}>✗ {item.text}</Text>
       </Box>
     );
   }
@@ -144,19 +161,19 @@ export function TranscriptEntry({
       {item.tools && item.tools.length > 0 && (
         <Box flexDirection="column">
           {item.tools.map((t) => (
-            <ToolBlock key={t.id} run={t} expanded={expanded} />
+            <ToolBlock key={t.id} run={t} expanded={expanded} theme={theme} />
           ))}
         </Box>
       )}
       {item.text && item.text.trim().length > 0 && (
         <Box flexDirection="column">
-          <Text color="green" bold>
+          <Text color={theme.assistant} bold>
             ●
           </Text>
-          <Markdown>{item.text}</Markdown>
+          <Markdown theme={theme}>{item.text}</Markdown>
         </Box>
       )}
-      <TurnBadge turn={item.turn} />
+      <TurnBadge turn={item.turn} theme={theme} />
     </Box>
   );
 }
@@ -172,14 +189,16 @@ const MemoTranscriptEntry = React.memo(TranscriptEntry);
 export function Transcript({
   items,
   expanded = false,
+  theme,
 }: {
   items: TranscriptItem[];
   expanded?: boolean;
+  theme: TuiTheme;
 }): React.ReactElement {
   return (
     <Box flexDirection="column">
       {items.map((item, i) => (
-        <MemoTranscriptEntry key={i} item={item} expanded={expanded} />
+        <MemoTranscriptEntry key={i} item={item} expanded={expanded} theme={theme} />
       ))}
     </Box>
   );
@@ -193,6 +212,7 @@ export function LiveTurn({
   usage,
   round,
   expanded = false,
+  theme,
 }: {
   text: string;
   tools: ToolRun[];
@@ -200,24 +220,28 @@ export function LiveTurn({
   usage: UsageInfo;
   round: number;
   expanded?: boolean;
+  theme: TuiTheme;
 }): React.ReactElement {
   return (
     <Box marginTop={1} flexDirection="column">
       {tools.map((t) => (
-        <ToolBlock key={t.id} run={t} expanded={expanded} />
+        <ToolBlock key={t.id} run={t} expanded={expanded} theme={theme} />
       ))}
       <Box>
-        <Text color="green" bold>
+        <Text color={theme.assistant} bold>
           ●{' '}
         </Text>
-        <Spinner label={`thinking… (round ${round}, ${fmtDuration(elapsedMs)})`} />
+        <Spinner
+          label={`thinking… (round ${round}, ${fmtDuration(elapsedMs)})`}
+          color={theme.accent}
+        />
       </Box>
       {text && (
         <Box flexDirection="column">
-          <Markdown>{text}</Markdown>
+          <Markdown theme={theme}>{text}</Markdown>
         </Box>
       )}
-      <Text dimColor>
+      <Text color={theme.muted}>
         {'   '}
         {fmtTokens(usage.inputTokens)} in / {fmtTokens(usage.outputTokens)} out
         {usage.costUsd > 0 ? ` · ${fmtCost(usage.costUsd)}` : ''} · esc to stop
@@ -234,6 +258,7 @@ export function StatusBar({
   sessionLabel,
   totals,
   hints,
+  theme,
 }: {
   provider: string;
   model: string;
@@ -241,24 +266,33 @@ export function StatusBar({
   sessionLabel: string;
   totals: UsageInfo;
   hints: string;
+  theme: TuiTheme;
 }): React.ReactElement {
   return (
-    <Box marginTop={0} borderStyle="single" borderColor="gray" paddingX={1} flexDirection="column">
+    <Box
+      marginTop={0}
+      borderStyle="single"
+      borderColor={theme.muted}
+      paddingX={1}
+      flexDirection="column"
+    >
       <Box>
-        <Text color="magenta">{provider}</Text>
-        <Text dimColor>/</Text>
-        <Text color="magenta" bold>
+        <Text color={theme.accentSecondary}>{provider}</Text>
+        <Text color={theme.muted}>/</Text>
+        <Text color={theme.accentSecondary} bold>
           {model}
         </Text>
-        <Text dimColor> · </Text>
-        <Text color={readOnly ? 'yellow' : 'red'}>{readOnly ? 'READ-ONLY' : 'READ+WRITE'}</Text>
-        <Text dimColor> · session {sessionLabel} · </Text>
-        <Text color="cyan">
+        <Text color={theme.muted}> · </Text>
+        <Text color={readOnly ? theme.warning : theme.error}>
+          {readOnly ? 'READ-ONLY' : 'READ+WRITE'}
+        </Text>
+        <Text color={theme.muted}> · session {sessionLabel} · </Text>
+        <Text color={theme.accent}>
           {fmtTokens(totals.inputTokens)} in / {fmtTokens(totals.outputTokens)} out
         </Text>
-        {totals.costUsd > 0 ? <Text color="cyan"> · {fmtCost(totals.costUsd)}</Text> : null}
+        {totals.costUsd > 0 ? <Text color={theme.accent}> · {fmtCost(totals.costUsd)}</Text> : null}
       </Box>
-      <Text dimColor>{hints}</Text>
+      <Text color={theme.muted}>{hints}</Text>
     </Box>
   );
 }

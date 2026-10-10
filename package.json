@@ -39,7 +39,7 @@
     "test:smoke": "npm run build && node scripts/smoke-agent.mjs",
     "test:e2e": "npm run build && node scripts/e2e-cli.mjs",
     "test:stream": "npm run build && node scripts/e2e-stream.mjs",
-    "test:tui": "tsx scripts/tui-render-check.tsx",
+    "test:tui": "tsx scripts/tui-render-check.tsx && tsx scripts/smoke-theme.ts",
     "test:md": "tsx scripts/markdown-render-check.tsx",
     "test:system": "npm run build && node scripts/smoke-system.mjs",
     "test:config": "npm run build && node scripts/smoke-config.mjs && node scripts/smoke-connections.mjs",

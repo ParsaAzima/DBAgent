@@ -9,6 +9,7 @@ import type { Agent } from '../core/agent.js';
 import type { Skill } from '../core/skills.js';
 import type { AgentHooks, DatabaseDriver, LLMProviderId } from '../core/types.js';
 import { Tui } from './app.js';
+import type { ThemeName } from './theme.js';
 
 export interface RenderTuiOptions {
   agent: Agent;
@@ -24,6 +25,8 @@ export interface RenderTuiOptions {
   sessionLabel: string;
   /** Installed Agent Skills (slash-suggestions + /skills + /name invocation). */
   skills?: Skill[];
+  initialTheme?: ThemeName;
+  onThemeSwitch?: (name: string) => void;
   /** Restored TUI transcript from a previous session. */
   initialItems?: unknown[];
   onModelSwitch?: (model: string) => void;
@@ -43,6 +46,8 @@ export function renderTui(opts: RenderTuiOptions): { waitUntilExit: Promise<void
       maxRows={opts.maxRows}
       sessionLabel={opts.sessionLabel}
       skills={opts.skills}
+      initialTheme={opts.initialTheme}
+      onThemeSwitch={opts.onThemeSwitch}
       initialItems={opts.initialItems as never}
       onModelSwitch={opts.onModelSwitch}
       onSave={opts.onSave ?? undefined}

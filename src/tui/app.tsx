@@ -26,6 +26,7 @@ import { ChatInput } from './input.js';
 import { findSlashCommand, SLASH_COMMANDS, type SlashCommand } from './commands.js';
 import { findSkillByName, buildSkillPrompt } from '../core/skills.js';
 import type { Skill } from '../core/skills.js';
+import { DEFAULT_THEME, getTheme, parseThemeName, THEMES, type ThemeName } from './theme.js';
 import type { TranscriptItem, ToolRun, UsageInfo, TurnUsage } from './foundation.js';
 import {
   usageToInfo,
@@ -50,6 +51,8 @@ export interface TuiProps {
   sessionLabel: string;
   /** Installed Agent Skills: /name runs one, /skills lists them. */
   skills?: Skill[];
+  initialTheme?: ThemeName;
+  onThemeSwitch?: (name: string) => void;
   /** Restored transcript from a previous session (rendered before anything). */
   initialItems?: TranscriptItem[];
   onModelSwitch?: (model: string) => void;
@@ -78,6 +81,8 @@ export function Tui(props: TuiProps): React.ReactElement {
   const [items, setItems] = useState<TranscriptItem[]>(props.initialItems ?? []);
   const [live, setLive] = useState<Live>(IDLE);
   const [model, setModel] = useState(props.model);
+  const [themeName, setThemeName] = useState<ThemeName>(props.initialTheme ?? DEFAULT_THEME);
+  const theme = getTheme(themeName);
   const [totals, setTotals] = useState<UsageInfo>(EMPTY_USAGE);
   const [showTable, setShowTable] = useState(false);
   const [toolDetail, setToolDetail] = useState(false);
@@ -293,7 +298,12 @@ export function Tui(props: TuiProps): React.ReactElement {
           });
           return;
         }
-        if (args && command.name !== 'help' && command.name !== 'model') {
+        if (
+          args &&
+          command.name !== 'help' &&
+          command.name !== 'model' &&
+          command.name !== 'theme'
+        ) {
           push({ role: 'error', text: `/${command.name} does not take arguments.` });
           return;
         }
@@ -351,6 +361,30 @@ export function Tui(props: TuiProps): React.ReactElement {
               props.onModelSwitch(args);
               setModel(args);
               push({ role: 'info', text: `✓ model → ${args}` });
+            } catch (err) {
+              push({ role: 'error', text: (err as Error).message });
+            }
+            return;
+          case 'theme':
+            if (!args) {
+              push({
+                role: 'info',
+                text: `Current theme: ${themeName} (${theme.style})\nAvailable themes:\n${Object.values(
+                  THEMES,
+                )
+                  .map((entry) => `  ${entry.name} — ${entry.style}`)
+                  .join('\n')}\nUse /theme <name> to switch.`,
+              });
+              return;
+            }
+            try {
+              const selected = parseThemeName(args);
+              props.onThemeSwitch?.(selected);
+              setThemeName(selected);
+              push({
+                role: 'info',
+                text: `Theme changed to ${selected} (${getTheme(selected).style}).`,
+              });
             } catch (err) {
               push({ role: 'error', text: (err as Error).message });
             }
@@ -453,7 +487,7 @@ export function Tui(props: TuiProps): React.ReactElement {
       push({ role: 'user', text: input, ts: Date.now() });
       await runTurn(input);
     },
-    [props, push, runTurn, model, live.busy, exit, totals],
+    [props, push, runTurn, model, live.busy, exit, totals, theme, themeName],
   );
 
   useInput((input, key) => {
@@ -485,8 +519,8 @@ export function Tui(props: TuiProps): React.ReactElement {
   void tick; // re-render driver
 
   return (
-    <Box flexDirection="column">
-      <Transcript items={items} expanded={toolDetail} />
+    <Box flexDirection="column" backgroundColor={theme.background}>
+      <Transcript items={items} expanded={toolDetail} theme={theme} />
       {live.busy ? (
         <LiveTurn
           text={live.text}
@@ -495,6 +529,7 @@ export function Tui(props: TuiProps): React.ReactElement {
           usage={live.usage}
           round={live.round}
           expanded={toolDetail}
+          theme={theme}
         />
       ) : null}
 
@@ -502,6 +537,7 @@ export function Tui(props: TuiProps): React.ReactElement {
         <TableView
           result={pickLatestTable([...live.tools, ...items.flatMap((i) => i.tools ?? [])])!}
           onClose={() => setShowTable(false)}
+          theme={theme}
         />
       ) : pending ? (
         <Box marginTop={1} flexDirection="column">
@@ -511,7 +547,9 @@ export function Tui(props: TuiProps): React.ReactElement {
           </Text>
           {pending.req.impactEstimate ? <Text>Impact: {pending.req.impactEstimate}</Text> : null}
           {pending.req.noWhereWarning ? (
-            <Text color="red">WARNING: no WHERE clause — this affects the whole table!</Text>
+            <Text color={theme.error}>
+              WARNING: no WHERE clause — this affects the whole table!
+            </Text>
           ) : null}
           <Text>
             SQL:{' '}
@@ -523,7 +561,12 @@ export function Tui(props: TuiProps): React.ReactElement {
         </Box>
       ) : (
         <Box marginTop={1}>
-          <ChatInput onSubmit={handleSubmit} disabled={live.busy} extraCommands={skillCommands} />
+          <ChatInput
+            onSubmit={handleSubmit}
+            disabled={live.busy}
+            extraCommands={skillCommands}
+            theme={theme}
+          />
         </Box>
       )}
 
@@ -534,6 +577,7 @@ export function Tui(props: TuiProps): React.ReactElement {
         sessionLabel={props.sessionLabel}
         totals={totals}
         hints={toolDetail ? HINTS_EXPANDED : HINTS}
+        theme={theme}
       />
     </Box>
   );

@@ -9,6 +9,7 @@ import React, { useMemo, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import type { ToolResultData } from '../core/types.js';
 import { fmtDuration } from './foundation.js';
+import type { TuiTheme } from './theme.js';
 
 const VISIBLE_ROWS = 12;
 const VISIBLE_COLS = 6;
@@ -16,9 +17,11 @@ const VISIBLE_COLS = 6;
 export function TableView({
   result,
   onClose,
+  theme,
 }: {
   result: ToolResultData;
   onClose: () => void;
+  theme: TuiTheme;
 }): React.ReactElement {
   const [row, setRow] = useState(0);
   const [col, setCol] = useState(0);
@@ -68,36 +71,36 @@ export function TableView({
     '│' + cells.map((c, i) => ` ${String(c ?? '').padEnd(widthSlice[i] ?? 3)} `).join('│') + '│';
 
   return (
-    <Box flexDirection="column" borderStyle="double" borderColor="cyan" paddingX={1}>
+    <Box flexDirection="column" borderStyle="double" borderColor={theme.table} paddingX={1}>
       <Box justifyContent="space-between">
-        <Text bold color="cyan">
+        <Text bold color={theme.table}>
           [table] {result.table ?? (result.sql ? 'query result' : 'result')}
-          {result.sql ? <Text dimColor> — {result.sql.slice(0, 60)}</Text> : null}
+          {result.sql ? <Text color={theme.muted}> — {result.sql.slice(0, 60)}</Text> : null}
         </Text>
-        <Text dimColor>
+        <Text color={theme.muted}>
           {result.rowCount} rows
           {result.durationMs !== undefined ? ` · ${fmtDuration(result.durationMs)}` : ''}
         </Text>
       </Box>
-      <Text color="cyan">{line('┌', '┬', '┐')}</Text>
-      <Text color="cyan" bold>
+      <Text color={theme.table}>{line('┌', '┬', '┐')}</Text>
+      <Text color={theme.table} bold>
         {drawRow(colSlice)}
       </Text>
-      <Text color="cyan">{line('├', '┼', '┤')}</Text>
+      <Text color={theme.table}>{line('├', '┼', '┤')}</Text>
       {rowSlice.map((r, i) => (
         <Text
           key={i}
           color={
             row === Math.min(row, Math.max(0, result.rows.length - VISIBLE_ROWS)) + i
-              ? 'white'
-              : undefined
+              ? theme.foreground
+              : theme.muted
           }
         >
           {drawRow(r.map(cellText))}
         </Text>
       ))}
-      <Text color="cyan">{line('└', '┴', '┘')}</Text>
-      <Text dimColor>
+      <Text color={theme.table}>{line('└', '┴', '┘')}</Text>
+      <Text color={theme.muted}>
         ↑↓/jk rows · ←→/hl cols · PgUp/PgDn page · g/G ends · showing rows{' '}
         {Math.min(row, maxRow()) + 1}-{Math.min(row + VISIBLE_ROWS, result.rows.length)} of{' '}
         {result.rows.length}, cols {col + 1}-{Math.min(col + VISIBLE_COLS, result.columns.length)}{' '}

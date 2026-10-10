@@ -89,6 +89,7 @@ Use `dbagent db list` to see saved names, `dbagent db use <name>` to switch the 
 | `↑` / `↓` / `Tab`            | Navigate and complete slash-command suggestions; outside the menu, arrows browse input history               |
 | `/help [command]`            | List commands or show details for one command                                                                |
 | `/model [name]`              | Show or switch models mid-session, e.g. `/model anthropic/claude-sonnet-4`                                   |
+| `/theme [name]`              | List or switch terminal themes; switching is saved for future sessions                                       |
 | `/schema` · `/refresh`       | Show tables/columns/relationships · reload the live schema after external DDL                                |
 | `/status` · `/cost`          | Show session/database/model state · cumulative tokens and estimated cost                                     |
 | `/clear` · `ctrl+l`          | Clear the visible transcript; the agent context is retained                                                  |
@@ -96,6 +97,8 @@ Use `dbagent db list` to see saved names, `dbagent db use <name>` to switch the 
 | `/skills` · `/<name>`        | List installed skills · run one directly (its instructions are inlined into the prompt)                      |
 
 Start typing `/` to see matching commands (installed skills appear in the menu too). Use `↑`/`↓` to highlight a suggestion, `Tab` to complete it, or `Enter` to complete a partial command; `Enter` on a complete command runs it. `/quit` is an alias for `/exit`, and `/cls` is an alias for `/clear`. Unknown slash commands are reported instead of being sent to the model.
+
+Choose from `catppuccin-mocha` (default), `dracula`, `tokyo-night`, `one-dark`, `nord`, `gruvbox-dark`, `solarized-dark`, `monokai`, `kanagawa`, `github-dark`, `github-light`, and `catppuccin-latte`. Use `dbagent theme list` to view them, `dbagent theme set <name>` to save a preference, or `dbagent chat --theme <name>` for a one-session choice. Set `DBAGENT_THEME` to override the saved theme; use `/theme [name]` while chatting to inspect or switch themes.
 
 The status bar is always visible: current `provider/model`, safety mode, session id, cumulative tokens in/out, and **estimated cost** (built-in price table for popular models; shows `$0` when pricing is unknown).
 

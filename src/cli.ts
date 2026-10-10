@@ -34,6 +34,7 @@ import {
   type SessionFile,
 } from './session/store.js';
 import { loadSkills, buildSkillPrompt, findSkillByName } from './core/skills.js';
+import { loadTheme, parseThemeName, saveTheme, THEMES, type ThemeName } from './tui/theme.js';
 
 function redactDbUrl(url: string): string {
   return url.replace(/\/\/([^:/@]+):([^@]+)@/, '//$1:***@');
@@ -99,12 +100,15 @@ program
   .option('--resume [id]', 'Resume a saved session (latest if no id given)')
   .option('--config <path>', 'TOML config file (default: ./dbagent.toml, ~/.dbagent/config.toml)')
   .option('--plain', 'Use the legacy line-based REPL instead of the TUI', false)
+  .option('--theme <name>', 'TUI color theme (see "dbagent theme list")')
   .action(async (opts) => {
     loadDotEnv();
     let cfg;
     let configPath: string | undefined;
+    let theme: ThemeName;
     try {
       configPath = initFileConfig(opts.config);
+      theme = opts.theme ? parseThemeName(opts.theme) : loadTheme();
       const dbUrl = selectedConnectionUrl(opts.db, process.env.DBAGENT_DB_URL);
       cfg = resolveConfig({
         providerFlag: opts.provider,
@@ -221,6 +225,10 @@ program
         maxRows: cfg.maxRows,
         sessionLabel: sessionId,
         skills,
+        initialTheme: theme,
+        onThemeSwitch: (name: string) => {
+          saveTheme(name);
+        },
         initialItems: tuiItems as never,
         onModelSwitch: (model: string) => {
           const nextConfig = { ...cfg.llm, model };
@@ -599,6 +607,34 @@ dbCmd
       process.exitCode = 1;
     }
   });
+
+const themeCmd = program.command('theme').description('List or select the persistent TUI theme.');
+themeCmd
+  .command('list')
+  .description('List available terminal themes.')
+  .action(() => {
+    const current = loadTheme();
+    for (const theme of Object.values(THEMES)) {
+      console.log(`${theme.name === current ? '* ' : '  '}${theme.name} — ${theme.style}`);
+    }
+  });
+themeCmd
+  .command('set')
+  .description('Set the persistent terminal theme.')
+  .argument('<name>', 'Theme name')
+  .action((name: string) => {
+    try {
+      console.log(`✓ TUI theme set to ${saveTheme(name)}.`);
+    } catch (err) {
+      console.error(`✗ ${(err as Error).message}`);
+      process.exitCode = 1;
+    }
+  });
+themeCmd.action(() => {
+  const current = loadTheme();
+  console.log(`Current TUI theme: ${current} (${THEMES[current].style})`);
+  console.log('Use "dbagent theme list" to list themes or "dbagent theme set <name>" to switch.');
+});
 
 const sessionsCmd = program.command('sessions').description('Manage saved chat sessions.');
 sessionsCmd.command('list').action(() => {

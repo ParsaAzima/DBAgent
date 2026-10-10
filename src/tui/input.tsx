@@ -11,6 +11,7 @@ import {
   getSlashCommandSuggestions,
   type SlashCommand,
 } from './commands.js';
+import type { TuiTheme } from './theme.js';
 
 interface ChatInputProps {
   onSubmit: (value: string) => void | Promise<void>;
@@ -18,6 +19,7 @@ interface ChatInputProps {
   disabled?: boolean;
   /** Dynamic slash entries (installed skills) merged into suggestions. */
   extraCommands?: SlashCommand[];
+  theme: TuiTheme;
 }
 
 /** Input history is global so remounting the prompt does not discard it. */
@@ -28,6 +30,7 @@ export function ChatInput({
   placeholder = 'ask anything… (/help for commands)',
   disabled = false,
   extraCommands = [],
+  theme,
 }: ChatInputProps): React.ReactElement {
   const [value, setValue] = useState('');
   const [historyIndex, setHistoryIndex] = useState<number | null>(null);
@@ -118,8 +121,8 @@ export function ChatInput({
 
   return (
     <Box flexDirection="column">
-      <Text>
-        <Text color="blue" bold>
+      <Text color={theme.foreground}>
+        <Text color={theme.user} bold>
           {'you › '}
         </Text>
         <TextInput
@@ -135,7 +138,7 @@ export function ChatInput({
           {suggestions.map((command, index) => (
             <Text
               key={command.name}
-              color={index === suggestionIndex % suggestions.length ? 'cyan' : 'gray'}
+              color={index === suggestionIndex % suggestions.length ? theme.accent : theme.muted}
               bold={index === suggestionIndex % suggestions.length}
             >
               {index === suggestionIndex % suggestions.length ? '› ' : '  '}
@@ -143,10 +146,10 @@ export function ChatInput({
                 /{command.name}
                 {command.usage ? ` ${command.usage}` : ''}
               </Text>
-              <Text dimColor> {command.description}</Text>
+              <Text color={theme.muted}> {command.description}</Text>
             </Text>
           ))}
-          <Text dimColor>↑↓ select · tab complete · enter run</Text>
+          <Text color={theme.muted}>↑↓ select · tab complete · enter run</Text>
         </Box>
       ) : null}
     </Box>
