@@ -56,6 +56,8 @@ export interface TuiProps {
 const EMPTY_USAGE: UsageInfo = { inputTokens: 0, outputTokens: 0, costUsd: 0 };
 const HINTS =
   'esc stop · ctrl+t tool details · ctrl+o table view · / for commands · /help for help';
+const HINTS_EXPANDED =
+  'esc stop · ctrl+t hide details · ctrl+o table view · / for commands · /help for help';
 
 interface Live {
   text: string;
@@ -438,6 +440,11 @@ export function Tui(props: TuiProps): React.ReactElement {
     if (key.ctrl && input === 'o') {
       const t = pickLatestTable([...live.tools, ...items.flatMap((i) => i.tools ?? [])]);
       if (t) setShowTable(true);
+      else
+        push({
+          role: 'info',
+          text: 'No table result to view yet — run a query first, then ctrl+o opens the latest result.',
+        });
     }
     if (key.ctrl && input === 'l') {
       setItems([]);
@@ -449,7 +456,7 @@ export function Tui(props: TuiProps): React.ReactElement {
 
   return (
     <Box flexDirection="column">
-      <Transcript items={items} />
+      <Transcript items={items} expanded={toolDetail} />
       {live.busy ? (
         <LiveTurn
           text={live.text}
@@ -457,6 +464,7 @@ export function Tui(props: TuiProps): React.ReactElement {
           elapsedMs={elapsed}
           usage={live.usage}
           round={live.round}
+          expanded={toolDetail}
         />
       ) : null}
 
@@ -495,7 +503,7 @@ export function Tui(props: TuiProps): React.ReactElement {
         readOnly={!props.allowWrites}
         sessionLabel={props.sessionLabel}
         totals={totals}
-        hints={HINTS}
+        hints={toolDetail ? HINTS_EXPANDED : HINTS}
       />
     </Box>
   );

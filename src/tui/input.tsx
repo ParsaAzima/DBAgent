@@ -56,7 +56,15 @@ export function ChatInput({
   };
 
   useInput(
-    (_input, key) => {
+    (input, key) => {
+      // ink-text-input filters only ctrl+c, so every other ctrl+letter would
+      // insert its bare letter into the prompt (ctrl+t → "t"). Children's
+      // input handlers run before this parent-level one, so by the time we
+      // get here the stray character is already appended — undo it.
+      if (key.ctrl && input.length === 1 && input !== 'c') {
+        setValue((v) => (v.length > 0 && v.endsWith(input) ? v.slice(0, -1) : v));
+        return;
+      }
       if (key.tab && activeSuggestion) {
         replaceValue(completeSlashCommand(activeSuggestion));
         return;

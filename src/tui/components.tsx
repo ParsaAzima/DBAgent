@@ -7,7 +7,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Box, Text, Static } from 'ink';
+import { Box, Text } from 'ink';
 import Markdown from './markdown.js';
 import type { TranscriptItem, ToolRun, TurnUsage, UsageInfo } from './foundation.js';
 import { fmtTokens, fmtCost, fmtDuration, fmtTime } from './foundation.js';
@@ -104,7 +104,13 @@ function TurnBadge({ turn }: { turn?: TurnUsage }): React.ReactElement | null {
   );
 }
 
-export function TranscriptEntry({ item }: { item: TranscriptItem }): React.ReactElement {
+export function TranscriptEntry({
+  item,
+  expanded = false,
+}: {
+  item: TranscriptItem;
+  expanded?: boolean;
+}): React.ReactElement {
   if (item.role === 'user') {
     return (
       <Box marginTop={1} flexDirection="column">
@@ -138,7 +144,7 @@ export function TranscriptEntry({ item }: { item: TranscriptItem }): React.React
       {item.tools && item.tools.length > 0 && (
         <Box flexDirection="column">
           {item.tools.map((t) => (
-            <ToolBlock key={t.id} run={t} expanded={false} />
+            <ToolBlock key={t.id} run={t} expanded={expanded} />
           ))}
         </Box>
       )}
@@ -155,8 +161,28 @@ export function TranscriptEntry({ item }: { item: TranscriptItem }): React.React
   );
 }
 
-export function Transcript({ items }: { items: TranscriptItem[] }): React.ReactElement {
-  return <Static items={items}>{(item, i) => <TranscriptEntry key={i} item={item} />}</Static>;
+/**
+ * Memoized entry: keystrokes re-render the chat input without re-parsing the
+ * markdown of every past message. `expanded` (ctrl+t) is a prop, so toggling
+ * re-renders every entry — which is exactly why this can't be `<Static>`:
+ * static output is append-only and could never re-expand past tool blocks.
+ */
+const MemoTranscriptEntry = React.memo(TranscriptEntry);
+
+export function Transcript({
+  items,
+  expanded = false,
+}: {
+  items: TranscriptItem[];
+  expanded?: boolean;
+}): React.ReactElement {
+  return (
+    <Box flexDirection="column">
+      {items.map((item, i) => (
+        <MemoTranscriptEntry key={i} item={item} expanded={expanded} />
+      ))}
+    </Box>
+  );
 }
 
 /** Live pane while a turn runs: spinner + tool blocks + streaming markdown. */
@@ -166,17 +192,19 @@ export function LiveTurn({
   elapsedMs,
   usage,
   round,
+  expanded = false,
 }: {
   text: string;
   tools: ToolRun[];
   elapsedMs: number;
   usage: UsageInfo;
   round: number;
+  expanded?: boolean;
 }): React.ReactElement {
   return (
     <Box marginTop={1} flexDirection="column">
       {tools.map((t) => (
-        <ToolBlock key={t.id} run={t} expanded={false} />
+        <ToolBlock key={t.id} run={t} expanded={expanded} />
       ))}
       <Box>
         <Text color="green" bold>
