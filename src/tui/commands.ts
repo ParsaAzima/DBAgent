@@ -21,6 +21,10 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   { name: 'schema', description: 'List database tables, columns, and relationships.' },
   { name: 'refresh', description: 'Refresh the database schema after external changes.' },
   { name: 'save', description: 'Save the current session transcript.' },
+  {
+    name: 'skills',
+    description: 'List installed skills (SKILL.md packages); /name runs one.',
+  },
   { name: 'reset', description: 'Clear the transcript, conversation context, and usage totals.' },
   {
     name: 'status',
@@ -29,19 +33,27 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   { name: 'cost', description: 'Show cumulative token usage and estimated model cost.' },
 ];
 
-export function findSlashCommand(name: string): SlashCommand | undefined {
+export function findSlashCommand(
+  name: string,
+  extra: SlashCommand[] = [],
+): SlashCommand | undefined {
   const normalized = name.toLowerCase();
-  return SLASH_COMMANDS.find(
-    (command) =>
-      command.name === normalized || command.aliases?.some((alias) => alias === normalized),
+  return (
+    SLASH_COMMANDS.find(
+      (command) =>
+        command.name === normalized || command.aliases?.some((alias) => alias === normalized),
+    ) ?? extra.find((command) => command.name.toLowerCase() === normalized)
   );
 }
 
-export function getSlashCommandSuggestions(value: string): SlashCommand[] {
+export function getSlashCommandSuggestions(
+  value: string,
+  extra: SlashCommand[] = [],
+): SlashCommand[] {
   const match = /^\/([^\s]*)$/.exec(value);
   if (!match) return [];
   const query = match[1].toLowerCase();
-  return SLASH_COMMANDS.filter(
+  return [...SLASH_COMMANDS, ...extra].filter(
     (command) =>
       command.name.startsWith(query) || command.aliases?.some((alias) => alias.startsWith(query)),
   );

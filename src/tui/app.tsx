@@ -23,7 +23,9 @@ import type { DatabaseDriver } from '../core/types.js';
 import { Transcript, LiveTurn, StatusBar } from './components.js';
 import { TableView, pickLatestTable } from './table-viewer.js';
 import { ChatInput } from './input.js';
-import { findSlashCommand, SLASH_COMMANDS } from './commands.js';
+import { findSlashCommand, SLASH_COMMANDS, type SlashCommand } from './commands.js';
+import { findSkillByName, buildSkillPrompt } from '../core/skills.js';
+import type { Skill } from '../core/skills.js';
 import type { TranscriptItem, ToolRun, UsageInfo, TurnUsage } from './foundation.js';
 import {
   usageToInfo,
@@ -46,6 +48,8 @@ export interface TuiProps {
   hooks: AgentHooks;
   maxRows: number;
   sessionLabel: string;
+  /** Installed Agent Skills: /name runs one, /skills lists them. */
+  skills?: Skill[];
   /** Restored transcript from a previous session (rendered before anything). */
   initialItems?: TranscriptItem[];
   onModelSwitch?: (model: string) => void;
@@ -90,6 +94,11 @@ export function Tui(props: TuiProps): React.ReactElement {
   itemsRef.current = items;
   // Saved history is separate so clearing the screen does not erase the session.
   const transcriptRef = useRef<TranscriptItem[]>(props.initialItems ?? []);
+  // Installed skills surface as slash suggestions next to built-in commands.
+  const skillCommands: SlashCommand[] = (props.skills ?? []).map((s) => ({
+    name: s.name,
+    description: s.description,
+  }));
   const modelRef = useRef(model);
   modelRef.current = model;
 
@@ -269,14 +278,21 @@ export function Tui(props: TuiProps): React.ReactElement {
           return;
         }
         const command = findSlashCommand(parsed[1]);
+        const args = parsed[2]?.trim() ?? '';
         if (!command) {
+          // Agent Skills (Claude Code-style): /name runs a skill directly.
+          const skill = findSkillByName(props.skills, parsed[1]);
+          if (skill) {
+            push({ role: 'user', text: input, ts: Date.now() });
+            await runTurn(buildSkillPrompt(skill, args));
+            return;
+          }
           push({
             role: 'error',
             text: `Unknown command: /${parsed[1]}. Type /help to see available commands.`,
           });
           return;
         }
-        const args = parsed[2]?.trim() ?? '';
         if (args && command.name !== 'help' && command.name !== 'model') {
           push({ role: 'error', text: `/${command.name} does not take arguments.` });
           return;
@@ -385,6 +401,20 @@ export function Tui(props: TuiProps): React.ReactElement {
               push({ role: 'error', text: (err as Error).message });
             }
             return;
+          case 'skills': {
+            const skills = props.skills ?? [];
+            push({
+              role: 'info',
+              text:
+                skills.length === 0
+                  ? 'No skills installed. Create .dbagent/skills/<name>/SKILL.md (project) or ~/.dbagent/skills/<name>/SKILL.md (user).'
+                  : 'Installed skills — type /<name> to run one; the agent also loads matching skills automatically:\n' +
+                    skills
+                      .map((s) => `  /${s.name} — ${s.description}\n      ${s.source} · ${s.path}`)
+                      .join('\n'),
+            });
+            return;
+          }
           case 'save': {
             push({ role: 'info', text: '✓ session saved' });
             props.onSave?.(transcriptRef.current);
@@ -493,7 +523,7 @@ export function Tui(props: TuiProps): React.ReactElement {
         </Box>
       ) : (
         <Box marginTop={1}>
-          <ChatInput onSubmit={handleSubmit} disabled={live.busy} />
+          <ChatInput onSubmit={handleSubmit} disabled={live.busy} extraCommands={skillCommands} />
         </Box>
       )}
 

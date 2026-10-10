@@ -6,6 +6,7 @@
 import React from 'react';
 import { render } from 'ink';
 import type { Agent } from '../core/agent.js';
+import type { Skill } from '../core/skills.js';
 import type { AgentHooks, DatabaseDriver, LLMProviderId } from '../core/types.js';
 import { Tui } from './app.js';
 
@@ -21,6 +22,8 @@ export interface RenderTuiOptions {
   hooks: AgentHooks;
   maxRows: number;
   sessionLabel: string;
+  /** Installed Agent Skills (slash-suggestions + /skills + /name invocation). */
+  skills?: Skill[];
   /** Restored TUI transcript from a previous session. */
   initialItems?: unknown[];
   onModelSwitch?: (model: string) => void;
@@ -39,6 +42,7 @@ export function renderTui(opts: RenderTuiOptions): { waitUntilExit: Promise<void
       hooks={opts.hooks}
       maxRows={opts.maxRows}
       sessionLabel={opts.sessionLabel}
+      skills={opts.skills}
       initialItems={opts.initialItems as never}
       onModelSwitch={opts.onModelSwitch}
       onSave={opts.onSave ?? undefined}

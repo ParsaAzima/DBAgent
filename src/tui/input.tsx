@@ -5,12 +5,19 @@
 import React, { useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import TextInput from 'ink-text-input';
-import { completeSlashCommand, findSlashCommand, getSlashCommandSuggestions } from './commands.js';
+import {
+  completeSlashCommand,
+  findSlashCommand,
+  getSlashCommandSuggestions,
+  type SlashCommand,
+} from './commands.js';
 
 interface ChatInputProps {
   onSubmit: (value: string) => void | Promise<void>;
   placeholder?: string;
   disabled?: boolean;
+  /** Dynamic slash entries (installed skills) merged into suggestions. */
+  extraCommands?: SlashCommand[];
 }
 
 /** Input history is global so remounting the prompt does not discard it. */
@@ -20,13 +27,14 @@ export function ChatInput({
   onSubmit,
   placeholder = 'ask anything… (/help for commands)',
   disabled = false,
+  extraCommands = [],
 }: ChatInputProps): React.ReactElement {
   const [value, setValue] = useState('');
   const [historyIndex, setHistoryIndex] = useState<number | null>(null);
   const [historyDraft, setHistoryDraft] = useState('');
   const [suggestionIndex, setSuggestionIndex] = useState(0);
   const [inputRevision, setInputRevision] = useState(0);
-  const suggestions = getSlashCommandSuggestions(value);
+  const suggestions = getSlashCommandSuggestions(value, extraCommands);
   const activeSuggestion = suggestions[suggestionIndex % Math.max(suggestions.length, 1)];
 
   const changeValue = (next: string): void => {
@@ -42,7 +50,7 @@ export function ChatInput({
 
   const submit = async (): Promise<void> => {
     const exactCommand = /^\/([^\s]+)$/.exec(value.trim());
-    const isKnownCommand = exactCommand && findSlashCommand(exactCommand[1]);
+    const isKnownCommand = exactCommand && findSlashCommand(exactCommand[1], extraCommands);
     if (suggestions.length > 0 && !isKnownCommand && activeSuggestion) {
       replaceValue(completeSlashCommand(activeSuggestion));
       return;

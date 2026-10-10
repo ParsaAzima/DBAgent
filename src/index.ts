@@ -21,6 +21,8 @@ export { initFileConfig, findConfigFile, CONFIG_FILE_NAME } from './core/config-
 export { createLLMAdapter, assertApiKeyPresent } from './llm/factory.js';
 export { createDatabaseDriver, parseDatabaseUrl } from './db/factory.js';
 export { buildTools } from './tools/index.js';
+export { loadSkills, parseSkill, findSkillByName, buildSkillPrompt } from './core/skills.js';
+export type { Skill, SkillMeta, LoadSkillsOptions } from './core/skills.js';
 export { saveSession, loadSession, listSessions, deleteSession } from './session/store.js';
 export { appendAudit, auditLogPath, createAuditSink } from './system/audit.js';
 export { estimateWriteImpact, extractWriteTables, hasNoWhere } from './system/impact.js';

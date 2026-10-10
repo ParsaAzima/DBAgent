@@ -15,6 +15,7 @@ import type {
   WriteConfirmRequest,
 } from '../core/types.js';
 import type { EmbedFn } from '../system/semantic.js';
+import type { Skill } from '../core/skills.js';
 import { SchemaSearch } from '../system/semantic.js';
 import { createSystemToolRegistry, type SystemToolDeps } from './system-tools.js';
 import { createFileToolRegistry, type FileToolDeps } from './file-tools.js';
@@ -60,6 +61,12 @@ export interface BuildToolsOptions {
    * Read at call time, so the CLI may install handlers after construction.
    */
   hooks?: AgentHooks;
+  /**
+   * Installed Agent Skills (SKILL.md packages). When non-empty, registers
+   * the use_skill tool so the model can load a skill's instructions on
+   * demand (progressive disclosure, Agent Skills standard).
+   */
+  skills?: Skill[];
 }
 
 export function buildTools(db: DatabaseDriver, opts: BuildToolsOptions = {}): BuiltTools {
@@ -752,6 +759,46 @@ export function buildTools(db: DatabaseDriver, opts: BuildToolsOptions = {}): Bu
       },
     });
     for (const [k, v] of shellRegistry) registry.set(k, v);
+  }
+
+  // ── Skills: load a SKILL.md package's instructions on demand ──
+  if (opts.skills && opts.skills.length > 0) {
+    const byName = new Map(opts.skills.map((s) => [s.name, s]));
+    tools.push({
+      name: 'use_skill',
+      description:
+        'Load an installed skill by name and receive its full instructions. The system prompt lists installed skills (name: description) — call this when one matches the task, then follow the returned instructions. Do not call it for skills the operator already inlined via /name.',
+      parameters: {
+        type: 'object',
+        description: 'Skill to load.',
+        properties: {
+          name: {
+            type: 'string',
+            description: 'Skill name exactly as listed in the system prompt.',
+          },
+          arguments: {
+            type: 'string',
+            description: 'Optional arguments or extra context for the skill.',
+          },
+        },
+        required: ['name'],
+      },
+    });
+    registry.set('use_skill', async (args) => {
+      const name = String(args.name ?? '').trim();
+      const skill = byName.get(name);
+      if (!skill) {
+        throw new Error(
+          `Unknown skill "${name}". Installed skills: ${[...byName.keys()].join(', ')}`,
+        );
+      }
+      return {
+        name: skill.name,
+        description: skill.description,
+        arguments: typeof args.arguments === 'string' ? args.arguments : '',
+        instructions: skill.body,
+      };
+    });
   }
 
   return { tools, registry };

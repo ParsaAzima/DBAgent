@@ -25,6 +25,7 @@ import type {
 } from './types.js';
 import type { EmbedFn } from '../system/semantic.js';
 import { defaultEmbedFn } from '../system/semantic.js';
+import type { Skill } from './skills.js';
 import type { LLMAdapter } from './types.js';
 import { buildTools } from '../tools/index.js';
 import { buildSystemPrompt } from './prompt.js';
@@ -73,6 +74,8 @@ export class Agent {
   readonly hooks: AgentHooks;
   /** Resolved permission flags; also grounds the system prompt. */
   private readonly safety: Required<AgentSafetyFlags>;
+  /** Installed Agent Skills (name + description in the prompt, body on demand). */
+  readonly skills: Skill[];
 
   constructor(
     private llm: LLMAdapter,
@@ -88,9 +91,12 @@ export class Agent {
       /** Embedding backend for search_tables; defaults to the session provider. */
       embed?: EmbedFn;
       hooks?: AgentHooks;
+      /** Installed Agent Skills (SKILL.md packages); enables use_skill + prompt section. */
+      skills?: Skill[];
     } = {},
   ) {
     this.hooks = opts.hooks ?? {};
+    this.skills = opts.skills ?? [];
     this.safety = {
       allowSystem: opts.allowSystem ?? false,
       allowWrites: opts.allowWrites ?? false,
@@ -105,6 +111,7 @@ export class Agent {
       maskPii: opts.maskPii ?? true,
       embed: opts.embed ?? defaultEmbedFn(this.providerConfig),
       hooks: this.hooks,
+      skills: this.skills,
     });
     this.tools = built.tools;
     this.registry = built.registry;
@@ -131,7 +138,7 @@ export class Agent {
 
   /** Run one full user turn through the tool loop. */
   async runTurn(userMessage: string, options: AgentTurnOptions = {}): Promise<AgentTurnResult> {
-    const system = await buildSystemPrompt(this.db, this.providerConfig, this.safety);
+    const system = await buildSystemPrompt(this.db, this.providerConfig, this.safety, this.skills);
     const deadline = options.timeoutMs ? Date.now() + options.timeoutMs : undefined;
     this.history.push({ role: 'user', content: userMessage });
 
@@ -205,7 +212,7 @@ export class Agent {
     userMessage: string,
     options: AgentTurnStreamOptions = {},
   ): Promise<AgentTurnResult> {
-    const system = await buildSystemPrompt(this.db, this.providerConfig, this.safety);
+    const system = await buildSystemPrompt(this.db, this.providerConfig, this.safety, this.skills);
     const deadline = options.timeoutMs ? Date.now() + options.timeoutMs : undefined;
     this.history.push({ role: 'user', content: userMessage });
 

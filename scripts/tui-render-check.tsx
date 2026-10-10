@@ -14,6 +14,7 @@ import { render } from 'ink';
 import { PassThrough } from 'node:stream';
 import { Tui } from '../src/tui/app.js';
 import type { AgentHooks } from '../src/core/types.js';
+import type { Skill } from '../src/core/skills.js';
 
 const mockDb: any = {
   dialect: 'sqlite' as const,
@@ -24,8 +25,20 @@ const mockDb: any = {
       kind: 'table' as const,
       rowCountEstimate: 2,
       columns: [
-        { name: 'id', dataType: 'INTEGER', nullable: false, isPrimaryKey: true, defaultValue: null },
-        { name: 'name', dataType: 'TEXT', nullable: false, isPrimaryKey: false, defaultValue: null },
+        {
+          name: 'id',
+          dataType: 'INTEGER',
+          nullable: false,
+          isPrimaryKey: true,
+          defaultValue: null,
+        },
+        {
+          name: 'name',
+          dataType: 'TEXT',
+          nullable: false,
+          isPrimaryKey: false,
+          defaultValue: null,
+        },
       ],
     },
   ],
@@ -38,9 +51,12 @@ const mockDb: any = {
 const mockAgent: any = {
   reset: () => {},
   getHistory: () => [],
-  runTurnStream: async (_q: string, opts?: any) => {
+  runTurnStream: async (q: string, opts?: any) => {
+    // Skill invocations inline the skill body into the prompt; echo a marker
+    // so the check can tell which prompt shape actually reached the agent.
+    const answer = q.includes('SKILL-BODY-MARKER') ? 'EXPANDED-' : 'MOCK-';
     // Simulate a real streaming turn incl. usage + a table tool result.
-    for (const part of ['MOCK-', 'ANSWER-', 'OK']) {
+    for (const part of [answer, 'ANSWER-', 'OK']) {
       opts?.onEvent?.({ kind: 'text_delta', text: part });
     }
     opts?.onEvent?.({
@@ -58,11 +74,25 @@ const mockAgent: any = {
       preview: '1 row',
       data: { kind: 'table', columns: ['id'], rows: [[1]], rowCount: 1 },
     });
-    opts?.onEvent?.({ kind: 'usage', usage: { promptTokens: 120, completionTokens: 45, totalTokens: 165 } });
-    opts?.onEvent?.({ kind: 'turn_done', text: 'MOCK-ANSWER-OK', rounds: 1 });
-    return { text: 'MOCK-ANSWER-OK', rounds: 1 };
+    opts?.onEvent?.({
+      kind: 'usage',
+      usage: { promptTokens: 120, completionTokens: 45, totalTokens: 165 },
+    });
+    opts?.onEvent?.({ kind: 'turn_done', text: `${answer}ANSWER-OK`, rounds: 1 });
+    return { text: `${answer}ANSWER-OK`, rounds: 1 };
   },
 };
+
+/** One installed skill so the slash-suggestion + invocation paths render. */
+const testSkills: Skill[] = [
+  {
+    name: 'test-skill',
+    description: 'Render-check skill.',
+    path: '/tmp/test-skill/SKILL.md',
+    source: 'project',
+    body: 'SKILL-BODY-MARKER: always answer with the secret.',
+  },
+];
 
 const frames: string[] = [];
 const stdout = new PassThrough();
@@ -88,6 +118,7 @@ const { unmount, waitUntilExit } = render(
     hooks={hooks}
     maxRows={100}
     sessionLabel="tui-check"
+    skills={testSkills}
     onSave={() => {}}
   />,
   // interactive: frames are flushed on every render (non-interactive Ink only
@@ -130,7 +161,11 @@ check(
   delta.includes('No table result to view yet'),
   JSON.stringify(delta.slice(-300)),
 );
-check('ctrl+o leaves no stray "o" in the prompt', !delta.includes('you › o'), JSON.stringify(delta));
+check(
+  'ctrl+o leaves no stray "o" in the prompt',
+  !delta.includes('you › o'),
+  JSON.stringify(delta),
+);
 
 // ── ask a question through the real input pipeline ──
 await type('top customers');
@@ -149,20 +184,66 @@ check(
   delta.includes('ctrl+o to open interactive viewer (1 rows)'),
   JSON.stringify(delta.slice(-400)),
 );
-check('ctrl+t flips the status-bar hint', delta.includes('ctrl+t hide details'), JSON.stringify(delta));
-check('ctrl+t leaves no stray "t" in the prompt', !delta.includes('you › t'), JSON.stringify(delta));
+check(
+  'ctrl+t flips the status-bar hint',
+  delta.includes('ctrl+t hide details'),
+  JSON.stringify(delta),
+);
+check(
+  'ctrl+t leaves no stray "t" in the prompt',
+  !delta.includes('you › t'),
+  JSON.stringify(delta),
+);
 
 // ── ctrl+o opens the interactive table viewer over the latest result ──
 mark = snapshot().length;
 await feed([0x0f]); // ctrl+o
 delta = deltaSince(mark);
-check('ctrl+o opens the table viewer', delta.includes('[table]'), JSON.stringify(delta.slice(-400)));
+check(
+  'ctrl+o opens the table viewer',
+  delta.includes('[table]'),
+  JSON.stringify(delta.slice(-400)),
+);
 
 // ── q closes the viewer again ──
 mark = snapshot().length;
 await feed('q', 300);
 delta = deltaSince(mark);
 check('q closes the table viewer', !delta.includes('[table]'), JSON.stringify(delta.slice(-400)));
+
+// ── skills: /name shows up in suggestions and runs the skill on submit ──
+mark = snapshot().length;
+await type('/test');
+delta = deltaSince(mark);
+check(
+  'installed skills appear as slash suggestions',
+  delta.includes('/test-skill'),
+  JSON.stringify(delta),
+);
+await type('-skill do Y', 30);
+await feed('\r', 600);
+delta = deltaSince(mark);
+check(
+  'skill invocation shows in the transcript',
+  delta.includes('/test-skill do Y'),
+  JSON.stringify(delta.slice(-400)),
+);
+check(
+  'skill body reaches the agent (expanded prompt)',
+  delta.includes('EXPANDED-ANSWER-OK'),
+  JSON.stringify(delta.slice(-400)),
+);
+
+// ── /skills lists what is installed ──
+mark = snapshot().length;
+await type('/skills');
+await feed('\r', 400);
+delta = deltaSince(mark);
+check(
+  '/skills lists installed skills',
+  delta.includes('Installed skills') && delta.includes('/test-skill —'),
+  JSON.stringify(delta.slice(-400)),
+);
 
 unmount();
 await waitUntilExit();

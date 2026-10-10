@@ -7,12 +7,14 @@
  */
 
 import type { AgentSafetyFlags, DatabaseDriver, DdlMode, LLMProviderConfig } from './types.js';
+import type { SkillMeta } from './skills.js';
 import { formatSchemaGraph } from '../db/schema-cache.js';
 
 export async function buildSystemPrompt(
   db: DatabaseDriver,
   cfg: LLMProviderConfig,
   safety?: AgentSafetyFlags,
+  skills: SkillMeta[] = [],
 ): Promise<string> {
   const dialect = db.dialect;
   const envBool = (v: string | undefined) => v === 'true' || v === '1';
@@ -85,6 +87,18 @@ export async function buildSystemPrompt(
     /* best-effort grounding; the agent still has list_relations */
   }
 
+  // Progressive disclosure (Agent Skills standard): only name + description
+  // are grounded here; the body loads via the use_skill tool when needed.
+  const skillsSection =
+    skills.length > 0
+      ? [
+          '',
+          '## Skills',
+          'Reusable skill packages are installed. When the task matches a skill description, call use_skill with that exact name and follow the returned instructions. The operator can also invoke a skill directly (they type /name in chat); you then receive its content in the user message and must NOT call use_skill for it again.',
+          ...skills.map((s) => `- ${s.name}: ${s.description}`),
+        ].join('\n')
+      : '';
+
   return [
     'You are DBAgent, an expert database assistant whose primary mission is PERFORMANCE: diagnosing bottlenecks, finding broken/missing/unused indexes, and recommending fixes. You answer questions by inspecting a live database with the provided tools — never guess table or column names.',
     '',
@@ -104,6 +118,7 @@ export async function buildSystemPrompt(
     'Privacy: columns flagged sensitive (email/phone/national id/secrets) come back masked in sample_rows/query — maskedColumns tells you what was hidden. Pass unmask: true only for exact values the user explicitly asked for (it is audit-logged). Never work around masking by guessing full values.',
     'Schema caching: list_tables/describe_table reuse a session snapshot (writes via execute invalidate it automatically). After external migrations, imports, or any DDL applied outside this session — or when a table looks missing/stale — call refresh_schema once, then continue.',
     schemaGraphSection,
+    skillsSection,
     '',
     '## Performance analysis (primary workflow)',
     'For any question about slowness, bottlenecks, indexes, load or health:',

@@ -28,6 +28,7 @@ An AI-powered database agent with a professional terminal UI — inspect, query,
 - **System operations** — stats, server info, CSV/JSON export, CSV import, backups (`VACUUM INTO`, `pg_dump`, `mysqldump`, `BACKUP DATABASE`), local database discovery
 - **File & shell tools** — read/write/edit/glob/grep files, run shell commands, behind explicit opt-in gates
 - **Persistent sessions** — full transcript (tool results, usage, timestamps) auto-saved and restorable with `--resume`
+- **Agent Skills** — SKILL.md packages following the open standard used by Claude Code, Codex CLI, GitHub Copilot and Qwen Code: reusable playbooks the model loads on demand, invocable directly as `/<name>`
 
 ## Installation
 
@@ -77,14 +78,47 @@ Ask things like _"Which product sold the most last month?"_ or _"Export the cust
 | `/status` · `/cost`          | Show session/database/model state · cumulative tokens and estimated cost                                     |
 | `/clear` · `ctrl+l`          | Clear the visible transcript; the agent context is retained                                                  |
 | `/save` · `/reset` · `/exit` | Persist the session · clear transcript/context/usage · save and quit                                         |
+| `/skills` · `/<name>`        | List installed skills · run one directly (its instructions are inlined into the prompt)                      |
 
-Start typing `/` to see matching commands. Use `↑`/`↓` to highlight a suggestion, `Tab` to complete it, or `Enter` to complete a partial command; `Enter` on a complete command runs it. `/quit` is an alias for `/exit`, and `/cls` is an alias for `/clear`. Unknown slash commands are reported instead of being sent to the model.
+Start typing `/` to see matching commands (installed skills appear in the menu too). Use `↑`/`↓` to highlight a suggestion, `Tab` to complete it, or `Enter` to complete a partial command; `Enter` on a complete command runs it. `/quit` is an alias for `/exit`, and `/cls` is an alias for `/clear`. Unknown slash commands are reported instead of being sent to the model.
 
 The status bar is always visible: current `provider/model`, safety mode, session id, cumulative tokens in/out, and **estimated cost** (built-in price table for popular models; shows `$0` when pricing is unknown).
 
 Session transcripts — including tool results, per-turn usage and timestamps — are auto-saved after every turn to `~/.dbagent/sessions/` and restored with `--resume`.
 
 Database URLs: `sqlite://./app.db` · `postgres://user:pass@host:5432/db?ssl=true` · `mysql://user:pass@host:3306/db` · `sqlserver://user:pass@host:1433/db?encrypt=true&trustServerCertificate=false` (named instance: `&instance=SQLEXPRESS`)
+
+## Skills
+
+Skills are reusable **SKILL.md** packages — the open Agent Skills standard shared by Claude Code, Codex CLI, GitHub Copilot and Qwen Code. A skill packages a playbook (a slow-query triage, a weekly sales report, a data audit) as markdown. Only its name and description are ever loaded up front; the full instructions load when the skill is actually used, so long procedures cost nothing until you need them.
+
+**Where skills live** — both locations are scanned at session start, and a project skill shadows a user skill of the same name:
+
+| Location                            | Scope                                                                      |
+| ----------------------------------- | -------------------------------------------------------------------------- |
+| `.dbagent/skills/<name>/SKILL.md`   | this project — commit it so the whole team (and every agent in CI) gets it |
+| `~/.dbagent/skills/<name>/SKILL.md` | your personal skills, available in every project on this machine           |
+
+**Format** — YAML frontmatter between `---` markers (`description` is required; `name` is optional and defaults to the directory name) plus a markdown body with the instructions:
+
+```markdown
+---
+name: slow-query-triage
+description: Diagnose a slow SQL query end to end. Use when the user reports slowness for a specific statement.
+---
+
+1. Run `explain_query` on the exact SQL the user reports.
+2. Check the plan for full scans, missing indexes and estimate gaps.
+3. Rank the findings by impact, then present the exact CREATE INDEX SQL with its trade-offs.
+```
+
+**How skills run:**
+
+- **Automatic** — the model sees each skill as a `name: description` line in its system prompt; when a task matches, it calls the `use_skill` tool and follows the returned instructions.
+- **Explicit** — type `/<name> [arguments]` in chat (TUI or plain REPL) to run a skill directly; its body is inlined into the prompt and anything you type after the name is passed along as extra context.
+- **Listing** — `/skills` inside the session, or `node dist/cli.js skills` in the terminal (shows each skill's source and path).
+
+A skill directory may hold supporting files next to `SKILL.md` (SQL scripts, reference tables); mention them in the body and let the file tools (`--allow-system`) read them.
 
 ## Agent tools
 
@@ -244,8 +278,8 @@ npm run format:check # prettier check (CI enforces this)
 npm test             # full suite (130+ checks):
                      #   typecheck · agent-loop smoke · e2e over HTTP (mock
                      #   OpenAI + OpenRouter) · SSE streaming e2e · TUI render
-                     #   · markdown render · system ops · file/shell tools
-                     #   · SQL Server dialect · performance diagnostics
+                     #   · markdown render · system ops · skills · file/shell
+                     #   tools · SQL Server dialect · performance diagnostics
 npm run demo:seed    # regenerate demo.db
 ```
 
@@ -255,7 +289,7 @@ Test suites run without any real API keys — LLMs are scripted or served by a l
 
 ```
 src/
-  core/       agent loop, shared types, config, system prompt
+  core/       agent loop, shared types, config, system prompt, skills
   llm/        adapters (OpenAI-compatible/OpenRouter, Anthropic, Gemini) + SSE streaming
   db/         drivers (SQLite, PostgreSQL, MySQL, SQL Server), SQL guardrails, URL factory
   tools/      tool registry: core DB tools, system tools, file tools, shell

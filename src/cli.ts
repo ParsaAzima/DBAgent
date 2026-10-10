@@ -26,6 +26,7 @@ import {
   saveSession,
   type SessionFile,
 } from './session/store.js';
+import { loadSkills, buildSkillPrompt, findSkillByName } from './core/skills.js';
 
 function redactDbUrl(url: string): string {
   return url.replace(/\/\/([^:/@]+):([^@]+)@/, '//$1:***@');
@@ -153,6 +154,9 @@ program
       process.exit(1);
     }
 
+    // Agent Skills (SKILL.md packages): .dbagent/skills (project) +
+    // ~/.dbagent/skills (user). Body loads on demand via use_skill or /name.
+    const skills = loadSkills();
     const llm = createLLMAdapter(cfg.llm);
     // Shared-by-reference hooks: audit is wired now, the write-confirm gate
     // is installed by the TUI (interactive y/n box) or the plain REPL below.
@@ -166,6 +170,7 @@ program
       ddlMode: cfg.ddlMode,
       maskPii: cfg.maskPii,
       hooks,
+      skills,
     });
     hooks.audit = createAuditSink({ sessionId, dbTarget: db.describeTarget() });
     // Restore prior transcript into the agent.
@@ -210,6 +215,7 @@ program
         hooks,
         maxRows: cfg.maxRows,
         sessionLabel: sessionId,
+        skills,
         initialItems: tuiItems as never,
         onModelSwitch: (model: string) => {
           const nextConfig = { ...cfg.llm, model };
@@ -328,11 +334,28 @@ program
         console.log('/exit  quit (auto-saves)   /reset  clear conversation');
         console.log('/save  persist session     /schema dump tables & columns');
         console.log('/refresh re-read schema after external DDL');
+        console.log('/skills list installed skills (/name runs one)');
+        return prompt();
+      }
+      if (input === '/skills') {
+        if (skills.length === 0) {
+          console.log('(no skills installed — create .dbagent/skills/<name>/SKILL.md)');
+        } else {
+          for (const s of skills) console.log(`  /${s.name} [${s.source}] — ${s.description}`);
+        }
         return prompt();
       }
 
+      // Agent Skills: /name expands the skill body into the turn prompt.
+      let runInput = input;
+      if (input.startsWith('/')) {
+        const skillMatch = /^\/(\S+)(?:\s+([\s\S]*))?$/.exec(input);
+        const skill = skillMatch ? findSkillByName(skills, skillMatch[1]) : undefined;
+        if (skill) runInput = buildSkillPrompt(skill, skillMatch?.[2]?.trim() ?? '');
+      }
+
       try {
-        const result = await agent.runTurn(input, {
+        const result = await agent.runTurn(runInput, {
           timeoutMs: cfg.timeoutMs,
           onStep: (step) => {
             if (step.kind === 'tool_result') {
@@ -404,6 +427,7 @@ program
             ddlMode: cfg.ddlMode,
             maskPii: cfg.maskPii,
             hooks,
+            skills: loadSkills(),
           });
           return agent.runTurn(question, { timeoutMs: cfg.timeoutMs });
         },
@@ -482,6 +506,24 @@ program
       console.error(`✗ ${(err as Error).message}`);
       process.exit(1);
     });
+  });
+
+program
+  .command('skills')
+  .description('List installed Agent Skills (project .dbagent/skills + user ~/.dbagent/skills).')
+  .action(() => {
+    const skills = loadSkills();
+    if (skills.length === 0) {
+      console.log('(no skills installed)');
+      console.log(
+        'Create .dbagent/skills/<name>/SKILL.md or ~/.dbagent/skills/<name>/SKILL.md — see the README Skills section.',
+      );
+      return;
+    }
+    for (const s of skills) {
+      console.log(`- ${s.name} [${s.source}] — ${s.description}`);
+      console.log(`    ${s.path}`);
+    }
   });
 
 const sessionsCmd = program.command('sessions').description('Manage saved chat sessions.');
