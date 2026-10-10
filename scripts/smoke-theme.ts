@@ -50,6 +50,7 @@ try {
       assert.match(theme.background, /^#[0-9a-f]{6}$/i);
       assert.match(theme.foreground, /^#[0-9a-f]{6}$/i);
       assert.ok(theme.accent && theme.error && theme.success && theme.code && theme.table);
+      assert.doesNotMatch(theme.style, /\p{Script=Arabic}/u);
     }
   });
 

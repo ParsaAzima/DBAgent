@@ -23,7 +23,7 @@ export interface TuiTheme {
 export const THEMES = {
   'catppuccin-mocha': {
     name: 'catppuccin-mocha',
-    style: 'تیره مدرن',
+    style: 'Modern dark',
     background: '#1e1e2e',
     foreground: '#cdd6f4',
     muted: '#9399b2',
@@ -40,7 +40,7 @@ export const THEMES = {
   },
   dracula: {
     name: 'dracula',
-    style: 'تیره رنگارنگ',
+    style: 'Colorful dark',
     background: '#282a36',
     foreground: '#f8f8f2',
     muted: '#a0a0b0',
@@ -57,7 +57,7 @@ export const THEMES = {
   },
   'tokyo-night': {
     name: 'tokyo-night',
-    style: 'آبی مدرن',
+    style: 'Modern blue',
     background: '#1a1b26',
     foreground: '#c0caf5',
     muted: '#787c99',
@@ -74,7 +74,7 @@ export const THEMES = {
   },
   'one-dark': {
     name: 'one-dark',
-    style: 'عمومی',
+    style: 'General-purpose',
     background: '#282c34',
     foreground: '#abb2bf',
     muted: '#7f848e',
@@ -91,7 +91,7 @@ export const THEMES = {
   },
   nord: {
     name: 'nord',
-    style: 'مینیمال',
+    style: 'Minimal',
     background: '#2e3440',
     foreground: '#d8dee9',
     muted: '#8b95a7',
@@ -108,7 +108,7 @@ export const THEMES = {
   },
   'gruvbox-dark': {
     name: 'gruvbox-dark',
-    style: 'گرم',
+    style: 'Warm',
     background: '#282828',
     foreground: '#ebdbb2',
     muted: '#a89984',
@@ -125,7 +125,7 @@ export const THEMES = {
   },
   'solarized-dark': {
     name: 'solarized-dark',
-    style: 'متعادل',
+    style: 'Balanced',
     background: '#002b36',
     foreground: '#839496',
     muted: '#657b83',
@@ -142,7 +142,7 @@ export const THEMES = {
   },
   monokai: {
     name: 'monokai',
-    style: 'کدنویسی',
+    style: 'Coding',
     background: '#272822',
     foreground: '#f8f8f2',
     muted: '#a6a69c',
@@ -159,7 +159,7 @@ export const THEMES = {
   },
   kanagawa: {
     name: 'kanagawa',
-    style: 'هنری',
+    style: 'Artistic',
     background: '#1f1f28',
     foreground: '#dcd7ba',
     muted: '#727169',
@@ -176,7 +176,7 @@ export const THEMES = {
   },
   'github-dark': {
     name: 'github-dark',
-    style: 'توسعه‌دهنده‌محور',
+    style: 'Developer-focused',
     background: '#0d1117',
     foreground: '#e6edf3',
     muted: '#8b949e',
@@ -193,7 +193,7 @@ export const THEMES = {
   },
   'github-light': {
     name: 'github-light',
-    style: 'روشن',
+    style: 'Light',
     background: '#ffffff',
     foreground: '#1f2328',
     muted: '#656d76',
@@ -210,7 +210,7 @@ export const THEMES = {
   },
   'catppuccin-latte': {
     name: 'catppuccin-latte',
-    style: 'روشن پاستلی',
+    style: 'Pastel light',
     background: '#eff1f5',
     foreground: '#4c4f69',
     muted: '#7c7f93',
